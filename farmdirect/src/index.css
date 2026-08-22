@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-on-surface font-body antialiased;
+  }
+  h1, h2, h3, h4 {
+    @apply font-display;
+  }
+  :focus-visible {
+    outline: 2px solid #154212;
+    outline-offset: 2px;
+  }
+}
+
+.material-symbols-outlined {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: "liga";
+  -webkit-font-smoothing: antialiased;
+}
+
+.ambient-shadow {
+  box-shadow: 0 4px 20px -4px rgba(93, 64, 55, 0.15);
+}
+
+.paper-grain {
+  position: relative;
+}
+.paper-grain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #f3f3f3;
+}
+::-webkit-scrollbar-thumb {
+  background: #c2c9bb;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #72796e;
+}
