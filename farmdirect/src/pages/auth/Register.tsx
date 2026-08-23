@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Button from "../../components/ui/Button";
 import { Field, Input } from "../../components/ui/Input";
+import GoogleButton from "../../components/auth/GoogleButton";
 import { useAuth } from "../../hooks/useAuth";
 import { ApiError } from "../../services/apiClient";
 import { cn } from "../../utils/cn";
@@ -52,6 +53,17 @@ export default function Register() {
             {r === "customer" ? "I'm a Customer" : "I'm a Farmer"}
           </button>
         ))}
+      </div>
+
+      <div className="mb-6">
+        <GoogleButton role={role} label={`Sign up with Google as ${role === "farmer" ? "Farmer" : "Customer"}`} />
+      </div>
+
+      <div className="relative flex items-center justify-center my-6">
+        <div className="border-t border-outline-variant w-full" />
+        <span className="bg-background px-3 text-label-sm text-on-surface-variant uppercase tracking-wider absolute">
+          Or register with email
+        </span>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">

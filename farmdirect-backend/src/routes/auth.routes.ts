@@ -19,3 +19,7 @@ authRouter.post("/refresh", authController.refresh);
 authRouter.post("/logout", authController.logout);
 authRouter.post("/forgot-password", validateBody(forgotPasswordSchema), authController.forgotPassword);
 authRouter.post("/reset-password", validateBody(resetPasswordSchema), authController.resetPassword);
+
+authRouter.get("/google", authController.googleAuth);
+authRouter.get("/google/callback", authController.googleCallback);
+authRouter.post("/google", authController.googleTokenAuth);

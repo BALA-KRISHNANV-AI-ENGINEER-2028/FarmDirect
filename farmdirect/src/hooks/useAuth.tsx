@@ -31,6 +31,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(null);
         }
       }
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("auth")) {
+        params.delete("auth");
+        const newSearch = params.toString();
+        const newPath = window.location.pathname + (newSearch ? `?${newSearch}` : "");
+        window.history.replaceState({}, document.title, newPath);
+      }
       setLoading(false);
     })();
   }, []);

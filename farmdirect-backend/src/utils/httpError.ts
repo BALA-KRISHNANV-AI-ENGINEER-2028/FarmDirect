@@ -32,4 +32,7 @@ export class HttpError extends Error {
   static unprocessable(message = "Unprocessable entity", details?: unknown) {
     return new HttpError(422, message, details);
   }
+  static serviceUnavailable(message = "Service unavailable") {
+    return new HttpError(503, message);
+  }
 }
