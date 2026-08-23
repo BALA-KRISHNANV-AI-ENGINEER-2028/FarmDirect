@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { NavLink, Outlet, Link } from "react-router-dom";
+import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
 import Logo from "../ui/Logo";
 import Icon from "../ui/Icon";
 import { cn } from "../../utils/cn";
+import { useAuth } from "../../hooks/useAuth";
 
 const navItems = [
   { to: "/farmer/dashboard", label: "Dashboard", icon: "dashboard" },
@@ -16,6 +17,13 @@ const navItems = [
 
 export default function FarmerLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { logout, user } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await logout();
+    navigate("/auth/login");
+  };
 
   return (
     <div className="min-h-screen flex bg-background">
@@ -44,6 +52,11 @@ export default function FarmerLayout() {
           ))}
         </nav>
         <div className="p-3 border-t border-outline-variant space-y-1">
+          {user && (
+            <div className="px-3 py-2 text-label-sm text-on-surface-variant truncate">
+              Signed in as <span className="font-semibold text-on-surface">{user.email}</span>
+            </div>
+          )}
           <Link
             to="/"
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-label-md font-semibold text-on-surface-variant hover:bg-surface-container-low"
@@ -51,13 +64,13 @@ export default function FarmerLayout() {
             <Icon name="storefront" size={20} />
             Switch to Shopping
           </Link>
-          <Link
-            to="/auth/login"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-label-md font-semibold text-on-surface-variant hover:bg-surface-container-low"
+          <button
+            onClick={handleSignOut}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-label-md font-semibold text-on-surface-variant hover:bg-surface-container-low text-left"
           >
             <Icon name="logout" size={20} />
             Sign Out
-          </Link>
+          </button>
         </div>
       </aside>
 
