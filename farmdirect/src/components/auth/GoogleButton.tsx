@@ -11,9 +11,13 @@ export default function GoogleButton({ role, className = "", label = "Continue w
 
   const handleGoogleClick = () => {
     setLoading(true);
-    // VITE_API_BASE_URL defaults to /api or http://localhost:4000/api
-    const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000/api";
-    const targetUrl = `${apiBase}/auth/google${role ? `?role=${role}` : ""}`;
+    // VITE_API_BASE_URL defaults to http://localhost:4000/api
+    const rawApiBase = (import.meta.env.VITE_API_BASE_URL || "http://localhost:4000/api").trim();
+    let cleanApiBase = rawApiBase.replace(/\/+$/, "");
+    if (!cleanApiBase.endsWith("/api")) {
+      cleanApiBase = `${cleanApiBase}/api`;
+    }
+    const targetUrl = `${cleanApiBase}/auth/google${role ? `?role=${role}` : ""}`;
     window.location.href = targetUrl;
   };
 
