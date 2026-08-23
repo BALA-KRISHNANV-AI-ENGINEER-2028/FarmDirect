@@ -77,14 +77,26 @@ export const googleCallback = asyncHandler(async (req: Request, res: Response) =
     return;
   }
 
-  const tokens = await googleAuthService.exchangeCodeForTokens(code);
-  const googleUser = await googleAuthService.verifyGoogleToken(tokens.id_token, tokens.access_token);
-  const result = await googleAuthService.resolveGoogleUser(googleUser, roleFromState);
+  try {
+    const tokens = await googleAuthService.exchangeCodeForTokens(code);
+    const googleUser = await googleAuthService.verifyGoogleToken(tokens.id_token, tokens.access_token);
+    const result = await googleAuthService.resolveGoogleUser(googleUser, roleFromState);
 
-  setRefreshCookie(res, result.refreshToken);
+    setRefreshCookie(res, result.refreshToken);
 
-  const targetOrigin = Array.isArray(env.CORS_ORIGIN) ? env.CORS_ORIGIN[0] : env.CORS_ORIGIN;
-  res.redirect(`${targetOrigin}/?auth=google_success`);
+    const targetOrigin = Array.isArray(env.CORS_ORIGIN) ? env.CORS_ORIGIN[0] : env.CORS_ORIGIN;
+    res.redirect(`${targetOrigin}/?auth=google_success`);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error("[GoogleOAuth Callback Execution Failed]:", {
+      name: error instanceof Error ? error.name : "UnknownError",
+      message: error instanceof Error ? error.message : String(error),
+      code: (error as Record<string, unknown>)?.code,
+      detail: (error as Record<string, unknown>)?.detail,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw error;
+  }
 });
 
 export const googleTokenAuth = asyncHandler(async (req: Request, res: Response) => {

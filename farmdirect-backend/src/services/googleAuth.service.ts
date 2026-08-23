@@ -58,8 +58,8 @@ export async function exchangeCodeForTokens(code: string): Promise<{ id_token: s
   if (!res.ok) {
     const errBody = await res.text();
     // eslint-disable-next-line no-console
-    console.error("Google token exchange failed:", errBody);
-    throw HttpError.badRequest("Failed to exchange code with Google.");
+    console.error(`[GoogleOAuth] Token exchange failed (HTTP ${res.status}):`, errBody);
+    throw HttpError.badRequest(`Failed to exchange code with Google: ${errBody}`);
   }
 
   const data = (await res.json()) as { id_token?: string; access_token?: string };
@@ -131,58 +131,68 @@ export async function resolveGoogleUser(
     throw HttpError.badRequest("Your Google email is not verified.");
   }
 
-  return withTransaction(async (client) => {
-    // Case 3 & 4: Search for existing Google OAuth link
-    const existingOAuth = await findOAuthAccount("google", googleUser.sub, client);
-    let userId: string;
-    let role: UserRole;
+  try {
+    return await withTransaction(async (client) => {
+      // Case 3 & 4: Search for existing Google OAuth link
+      const existingOAuth = await findOAuthAccount("google", googleUser.sub, client);
+      let userId: string;
+      let role: UserRole;
 
-    if (existingOAuth) {
-      const existingUser = await findUserById(existingOAuth.user_id, client);
-      if (!existingUser || !existingUser.is_active) {
-        throw HttpError.unauthorized("User account is inactive or disabled.");
-      }
-      userId = existingUser.id;
-      role = existingUser.role;
-    } else {
-      // Case 2: Check if user exists by email
-      const existingUserByEmail = await findUserByEmail(googleUser.email, client);
-      if (existingUserByEmail) {
-        if (!existingUserByEmail.is_active) {
+      if (existingOAuth) {
+        const existingUser = await findUserById(existingOAuth.user_id, client);
+        if (!existingUser || !existingUser.is_active) {
           throw HttpError.unauthorized("User account is inactive or disabled.");
         }
-        userId = existingUserByEmail.id;
-        role = existingUserByEmail.role;
-        await insertOAuthAccount({ userId, provider: "google", providerAccountId: googleUser.sub }, client);
+        userId = existingUser.id;
+        role = existingUser.role;
       } else {
-        // Case 1: Create new user
-        const assignedRole: UserRole = rolePreference === "farmer" ? "farmer" : "customer";
-        const newUser = await insertUser(
-          { email: googleUser.email, passwordHash: "", role: assignedRole },
-          client
-        );
-        userId = newUser.id;
-        role = newUser.role;
-
-        const displayName = googleUser.name ?? (assignedRole === "farmer" ? "Farmer" : "Customer");
-        if (assignedRole === "customer") {
-          await insertCustomerProfile({ userId, fullName: displayName }, client);
+        // Case 2: Check if user exists by email
+        const existingUserByEmail = await findUserByEmail(googleUser.email, client);
+        if (existingUserByEmail) {
+          if (!existingUserByEmail.is_active) {
+            throw HttpError.unauthorized("User account is inactive or disabled.");
+          }
+          userId = existingUserByEmail.id;
+          role = existingUserByEmail.role;
+          await insertOAuthAccount({ userId, provider: "google", providerAccountId: googleUser.sub }, client);
         } else {
-          await insertFarmerProfile({ userId, fullName: displayName }, client);
+          // Case 1: Create new user
+          const assignedRole: UserRole = rolePreference === "farmer" ? "farmer" : "customer";
+          const newUser = await insertUser(
+            { email: googleUser.email, passwordHash: "", role: assignedRole },
+            client
+          );
+          userId = newUser.id;
+          role = newUser.role;
+
+          const displayName = googleUser.name ?? (assignedRole === "farmer" ? "Farmer" : "Customer");
+          if (assignedRole === "customer") {
+            await insertCustomerProfile({ userId, fullName: displayName }, client);
+          } else {
+            await insertFarmerProfile({ userId, fullName: displayName }, client);
+          }
+
+          await insertDefaultNotificationPreferences(userId, client);
+          await insertOAuthAccount({ userId, provider: "google", providerAccountId: googleUser.sub }, client);
         }
-
-        await insertDefaultNotificationPreferences(userId, client);
-        await insertOAuthAccount({ userId, provider: "google", providerAccountId: googleUser.sub }, client);
       }
-    }
 
-    const accessToken = signAccessToken({ sub: userId, role });
-    const refreshToken = await issueRefreshToken(userId, client);
+      const accessToken = signAccessToken({ sub: userId, role });
+      const refreshToken = await issueRefreshToken(userId, client);
 
-    return {
-      user: { id: userId, email: googleUser.email, role },
-      accessToken,
-      refreshToken,
-    };
-  });
+      return {
+        user: { id: userId, email: googleUser.email, role },
+        accessToken,
+        refreshToken,
+      };
+    });
+  } catch (err: unknown) {
+    // eslint-disable-next-line no-console
+    console.error("[GoogleOAuth DB Error]:", {
+      message: err instanceof Error ? err.message : String(err),
+      code: (err as Record<string, unknown>)?.code,
+      detail: (err as Record<string, unknown>)?.detail,
+    });
+    throw err;
+  }
 }

@@ -31,7 +31,13 @@ export function errorHandler(
   }
 
   // eslint-disable-next-line no-console
-  console.error(`[${req.method} ${req.originalUrl}] Unhandled error:`, err);
+  console.error(`[${req.method} ${req.originalUrl}] Unhandled error:`, {
+    name: err instanceof Error ? err.name : "Error",
+    message: err instanceof Error ? err.message : String(err),
+    code: (err as Record<string, unknown>)?.code,
+    detail: (err as Record<string, unknown>)?.detail,
+    stack: err instanceof Error ? err.stack : undefined,
+  });
 
   res.status(500).json({
     error: {
