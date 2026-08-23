@@ -39,6 +39,13 @@ export function getGoogleAuthUrl(rolePreference?: string): string {
 }
 
 export async function exchangeCodeForTokens(code: string): Promise<{ id_token: string; access_token: string }> {
+  // eslint-disable-next-line no-console
+  console.log("[GoogleOAuth] token exchange started", {
+    redirectUri: env.GOOGLE_CALLBACK_URL,
+    hasClientId: Boolean(env.GOOGLE_CLIENT_ID),
+    hasClientSecret: Boolean(env.GOOGLE_CLIENT_SECRET),
+  });
+
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.GOOGLE_CALLBACK_URL) {
     throw HttpError.serviceUnavailable("Google OAuth is not configured on this server.");
   }
@@ -58,19 +65,28 @@ export async function exchangeCodeForTokens(code: string): Promise<{ id_token: s
   if (!res.ok) {
     const errBody = await res.text();
     // eslint-disable-next-line no-console
-    console.error(`[GoogleOAuth] Token exchange failed (HTTP ${res.status}):`, errBody);
-    throw HttpError.badRequest(`Failed to exchange code with Google: ${errBody}`);
+    console.error(`[GoogleOAuth] token exchange failed (HTTP ${res.status}):`, errBody);
+    const err = HttpError.badRequest(`Failed to exchange code with Google: ${errBody}`);
+    (err as unknown as Record<string, unknown>).stage = "token_exchange";
+    throw err;
   }
 
   const data = (await res.json()) as { id_token?: string; access_token?: string };
   if (!data.id_token || !data.access_token) {
-    throw HttpError.badRequest("Google token response missing id_token or access_token.");
+    const err = HttpError.badRequest("Google token response missing id_token or access_token.");
+    (err as unknown as Record<string, unknown>).stage = "token_exchange";
+    throw err;
   }
 
+  // eslint-disable-next-line no-console
+  console.log("[GoogleOAuth] token exchange successful");
   return { id_token: data.id_token, access_token: data.access_token };
 }
 
 export async function verifyGoogleToken(idToken: string, accessToken?: string): Promise<GooglePayload> {
+  // eslint-disable-next-line no-console
+  console.log("[GoogleOAuth] verifying Google ID token");
+
   // First try tokeninfo endpoint
   const infoRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
   if (infoRes.ok) {
@@ -84,10 +100,18 @@ export async function verifyGoogleToken(idToken: string, accessToken?: string): 
     };
 
     if (env.GOOGLE_CLIENT_ID && info.aud && info.aud !== env.GOOGLE_CLIENT_ID) {
-      throw HttpError.unauthorized("Google ID token audience mismatch.");
+      const err = HttpError.unauthorized("Google ID token audience mismatch.");
+      (err as unknown as Record<string, unknown>).stage = "token_verification";
+      throw err;
     }
 
     const emailVerified = info.email_verified === "true" || info.email_verified === true;
+    // eslint-disable-next-line no-console
+    console.log("[GoogleOAuth] Google identity verified via tokeninfo", {
+      emailDomain: info.email ? info.email.split("@")[1] : "unknown",
+      subLength: info.sub ? info.sub.length : 0,
+      emailVerified,
+    });
     return {
       sub: info.sub,
       email: info.email,
@@ -110,6 +134,11 @@ export async function verifyGoogleToken(idToken: string, accessToken?: string): 
         picture?: string;
         email_verified?: boolean;
       };
+      // eslint-disable-next-line no-console
+      console.log("[GoogleOAuth] Google identity verified via userinfo fallback", {
+        emailDomain: userinfo.email ? userinfo.email.split("@")[1] : "unknown",
+        subLength: userinfo.sub ? userinfo.sub.length : 0,
+      });
       return {
         sub: userinfo.sub,
         email: userinfo.email,
@@ -120,25 +149,38 @@ export async function verifyGoogleToken(idToken: string, accessToken?: string): 
     }
   }
 
-  throw HttpError.unauthorized("Invalid Google credentials.");
+  const err = HttpError.unauthorized("Invalid Google credentials.");
+  (err as unknown as Record<string, unknown>).stage = "token_verification";
+  throw err;
 }
 
 export async function resolveGoogleUser(
   googleUser: GooglePayload,
   rolePreference?: string
 ): Promise<{ user: { id: string; email: string; role: UserRole }; accessToken: string; refreshToken: string }> {
+  // eslint-disable-next-line no-console
+  console.log("[GoogleOAuth] resolving FarmDirect user");
+
   if (googleUser.emailVerified === false) {
-    throw HttpError.badRequest("Your Google email is not verified.");
+    const err = HttpError.badRequest("Your Google email is not verified.");
+    (err as unknown as Record<string, unknown>).stage = "email_verification_check";
+    throw err;
   }
 
+  let currentStage = "transaction_start";
   try {
     return await withTransaction(async (client) => {
-      // Case 3 & 4: Search for existing Google OAuth link
+      currentStage = "oauth_account_lookup";
+      // eslint-disable-next-line no-console
+      console.log("[GoogleOAuth] OAuth account lookup started");
       const existingOAuth = await findOAuthAccount("google", googleUser.sub, client);
       let userId: string;
       let role: UserRole;
 
       if (existingOAuth) {
+        // eslint-disable-next-line no-console
+        console.log("[GoogleOAuth] OAuth account lookup successful: found linked identity");
+        currentStage = "existing_user_lookup";
         const existingUser = await findUserById(existingOAuth.user_id, client);
         if (!existingUser || !existingUser.is_active) {
           throw HttpError.unauthorized("User account is inactive or disabled.");
@@ -146,17 +188,29 @@ export async function resolveGoogleUser(
         userId = existingUser.id;
         role = existingUser.role;
       } else {
-        // Case 2: Check if user exists by email
+        // eslint-disable-next-line no-console
+        console.log("[GoogleOAuth] OAuth account lookup: no existing identity link found");
+        currentStage = "user_email_lookup";
+        // eslint-disable-next-line no-console
+        console.log("[GoogleOAuth] user lookup started by email");
         const existingUserByEmail = await findUserByEmail(googleUser.email, client);
         if (existingUserByEmail) {
+          // eslint-disable-next-line no-console
+          console.log("[GoogleOAuth] user found by email, linking identity");
           if (!existingUserByEmail.is_active) {
             throw HttpError.unauthorized("User account is inactive or disabled.");
           }
           userId = existingUserByEmail.id;
           role = existingUserByEmail.role;
+          currentStage = "oauth_account_creation";
+          // eslint-disable-next-line no-console
+          console.log("[GoogleOAuth] OAuth account creation started");
           await insertOAuthAccount({ userId, provider: "google", providerAccountId: googleUser.sub }, client);
         } else {
           // Case 1: Create new user
+          currentStage = "user_creation";
+          // eslint-disable-next-line no-console
+          console.log("[GoogleOAuth] user creation started");
           const assignedRole: UserRole = rolePreference === "farmer" ? "farmer" : "customer";
           const newUser = await insertUser(
             { email: googleUser.email, passwordHash: "", role: assignedRole },
@@ -165,6 +219,9 @@ export async function resolveGoogleUser(
           userId = newUser.id;
           role = newUser.role;
 
+          currentStage = "profile_creation";
+          // eslint-disable-next-line no-console
+          console.log("[GoogleOAuth] profile creation started", { role: assignedRole });
           const displayName = googleUser.name ?? (assignedRole === "farmer" ? "Farmer" : "Customer");
           if (assignedRole === "customer") {
             await insertCustomerProfile({ userId, fullName: displayName }, client);
@@ -172,12 +229,19 @@ export async function resolveGoogleUser(
             await insertFarmerProfile({ userId, fullName: displayName }, client);
           }
 
+          currentStage = "notification_preferences_creation";
           await insertDefaultNotificationPreferences(userId, client);
+
+          currentStage = "oauth_account_creation";
+          // eslint-disable-next-line no-console
+          console.log("[GoogleOAuth] OAuth account creation started");
           await insertOAuthAccount({ userId, provider: "google", providerAccountId: googleUser.sub }, client);
         }
       }
 
+      currentStage = "jwt_signing";
       const accessToken = signAccessToken({ sub: userId, role });
+      currentStage = "refresh_token_issue";
       const refreshToken = await issueRefreshToken(userId, client);
 
       return {
@@ -187,11 +251,12 @@ export async function resolveGoogleUser(
       };
     });
   } catch (err: unknown) {
+    (err as unknown as Record<string, unknown>).stage = (err as unknown as Record<string, unknown>).stage ?? currentStage;
     // eslint-disable-next-line no-console
-    console.error("[GoogleOAuth DB Error]:", {
+    console.error(`[GoogleOAuth] failure at stage '${currentStage}':`, {
       message: err instanceof Error ? err.message : String(err),
-      code: (err as Record<string, unknown>)?.code,
-      detail: (err as Record<string, unknown>)?.detail,
+      code: (err as unknown as Record<string, unknown>)?.code,
+      detail: (err as unknown as Record<string, unknown>)?.detail,
     });
     throw err;
   }

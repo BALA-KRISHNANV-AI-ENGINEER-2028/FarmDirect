@@ -70,29 +70,48 @@ export const googleAuth = asyncHandler(async (req: Request, res: Response) => {
 export const googleCallback = asyncHandler(async (req: Request, res: Response) => {
   const code = typeof req.query.code === "string" ? req.query.code : undefined;
   const roleFromState = typeof req.query.state === "string" ? req.query.state : undefined;
+  const iss = typeof req.query.iss === "string" ? req.query.iss : undefined;
+
+  // eslint-disable-next-line no-console
+  console.log("[GoogleOAuth] callback started", {
+    hasCode: Boolean(code),
+    iss: iss ?? "none",
+    hasState: Boolean(roleFromState),
+    configuredRedirectUri: env.GOOGLE_CALLBACK_URL ?? "NOT_SET",
+  });
 
   if (!code) {
+    // eslint-disable-next-line no-console
+    console.warn("[GoogleOAuth] authorization code missing in callback query");
     const targetOrigin = Array.isArray(env.CORS_ORIGIN) ? env.CORS_ORIGIN[0] : env.CORS_ORIGIN;
     res.redirect(`${targetOrigin}/auth/login?error=google_cancelled`);
     return;
   }
+
+  // eslint-disable-next-line no-console
+  console.log("[GoogleOAuth] authorization code received");
 
   try {
     const tokens = await googleAuthService.exchangeCodeForTokens(code);
     const googleUser = await googleAuthService.verifyGoogleToken(tokens.id_token, tokens.access_token);
     const result = await googleAuthService.resolveGoogleUser(googleUser, roleFromState);
 
+    // eslint-disable-next-line no-console
+    console.log("[GoogleOAuth] session creation started");
     setRefreshCookie(res, result.refreshToken);
 
+    // eslint-disable-next-line no-console
+    console.log("[GoogleOAuth] callback completed successfully, redirecting to frontend");
     const targetOrigin = Array.isArray(env.CORS_ORIGIN) ? env.CORS_ORIGIN[0] : env.CORS_ORIGIN;
     res.redirect(`${targetOrigin}/?auth=google_success`);
-  } catch (error) {
+  } catch (error: unknown) {
     // eslint-disable-next-line no-console
-    console.error("[GoogleOAuth Callback Execution Failed]:", {
-      name: error instanceof Error ? error.name : "UnknownError",
-      message: error instanceof Error ? error.message : String(error),
-      code: (error as Record<string, unknown>)?.code,
-      detail: (error as Record<string, unknown>)?.detail,
+    console.error("[GoogleOAuth] callback stage failed:", {
+      stage: (error as Record<string, unknown>)?.stage ?? "callback_execution",
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : String(error),
+      pgErrorCode: (error as Record<string, unknown>)?.code,
+      pgDetail: (error as Record<string, unknown>)?.detail,
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
