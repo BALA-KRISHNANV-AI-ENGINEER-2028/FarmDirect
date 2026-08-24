@@ -213,7 +213,7 @@ export async function resolveGoogleUser(
           console.log("[GoogleOAuth] user creation started");
           const assignedRole: UserRole = rolePreference === "farmer" ? "farmer" : "customer";
           const newUser = await insertUser(
-            { email: googleUser.email, passwordHash: "", role: assignedRole },
+            { email: googleUser.email, passwordHash: null, role: assignedRole },
             client
           );
           userId = newUser.id;
