@@ -9,6 +9,8 @@ import * as authApi from "../../services/authApi";
 import * as farmsApi from "../../services/farmsApi";
 import { api } from "../../services/apiClient";
 import type { Farm } from "../../types";
+import LocationPicker from "../../components/maps/LocationPicker";
+import { useToast } from "../../components/ui/Toast";
 
 const tabs = [
   { id: "personal", label: "Personal Info", icon: "person" },
@@ -28,6 +30,7 @@ interface Preferences {
 export default function FarmerProfile() {
   const [tab, setTab] = useState("farm");
   const [loading, setLoading] = useState(true);
+  const { showToast } = useToast();
 
   const [me, setMe] = useState<authApi.ApiCurrentUser | null>(null);
   const [fullName, setFullName] = useState("");
@@ -66,6 +69,8 @@ export default function FarmerProfile() {
         setFarmCategory(f.category);
         setFarmDescription(f.description);
         setAddressLine(f.location);
+        setLatitude(f.lat ? String(f.lat) : "");
+        setLongitude(f.lng ? String(f.lng) : "");
       }
       setLoading(false);
     });
@@ -82,6 +87,9 @@ export default function FarmerProfile() {
         experienceYears: experienceYears ? Number(experienceYears) : undefined,
         story: story || undefined,
       });
+      showToast("Personal details updated successfully", "success");
+    } catch {
+      showToast("Failed to update personal details", "error");
     } finally {
       setSavingPersonal(false);
     }
@@ -97,19 +105,29 @@ export default function FarmerProfile() {
         farmingMethod: farmMethod || undefined,
         category: farmCategory || undefined,
         description: farmDescription || undefined,
-        addressLine,
       });
       setFarms((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
+      showToast("Farm information updated successfully", "success");
+    } catch {
+      showToast("Failed to update farm information", "error");
     } finally {
       setSavingFarm(false);
     }
   };
 
   const saveLocation = async () => {
-    if (!primaryFarm || !latitude || !longitude) return;
+    if (!primaryFarm) return;
     setSavingLocation(true);
     try {
-      await farmsApi.updateFarm(primaryFarm.id, { latitude: Number(latitude), longitude: Number(longitude) });
+      const updated = await farmsApi.updateFarm(primaryFarm.id, {
+        addressLine: addressLine || undefined,
+        latitude: latitude ? Number(latitude) : undefined,
+        longitude: longitude ? Number(longitude) : undefined,
+      });
+      setFarms((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
+      showToast("Farm location and address updated successfully", "success");
+    } catch {
+      showToast("Failed to update farm location", "error");
     } finally {
       setSavingLocation(false);
     }
@@ -211,15 +229,31 @@ export default function FarmerProfile() {
           )}
 
           {tab === "location" && primaryFarm && (
-            <div className="space-y-5 max-w-lg">
-              <Field label="Address"><Textarea rows={2} value={addressLine} onChange={(e) => setAddressLine(e.target.value)} /></Field>
+            <div className="space-y-5">
+              <Field label="Address">
+                <Textarea rows={2} value={addressLine} onChange={(e) => setAddressLine(e.target.value)} />
+              </Field>
               <div className="grid sm:grid-cols-2 gap-4">
-                <Field label="Latitude"><Input value={latitude} onChange={(e) => setLatitude(e.target.value)} placeholder="19.9975" /></Field>
-                <Field label="Longitude"><Input value={longitude} onChange={(e) => setLongitude(e.target.value)} placeholder="73.7898" /></Field>
+                <Field label="Latitude">
+                  <Input value={latitude} onChange={(e) => setLatitude(e.target.value)} placeholder="19.9975" />
+                </Field>
+                <Field label="Longitude">
+                  <Input value={longitude} onChange={(e) => setLongitude(e.target.value)} placeholder="73.7898" />
+                </Field>
               </div>
               <p className="text-label-sm text-on-surface-variant">
-                Setting coordinates lets customers find your farm through nearby-farm search.
+                Setting coordinates lets customers find your farm through nearby-farm search. Use the interactive map below to drag/pinpoint your location.
               </p>
+              
+              <LocationPicker
+                initialLat={latitude ? Number(latitude) : null}
+                initialLng={longitude ? Number(longitude) : null}
+                onChange={(lat, lng) => {
+                  setLatitude(String(lat));
+                  setLongitude(String(lng));
+                }}
+              />
+
               <Button onClick={saveLocation} disabled={savingLocation || !latitude || !longitude}>
                 {savingLocation ? "Updating..." : "Update Location"}
               </Button>

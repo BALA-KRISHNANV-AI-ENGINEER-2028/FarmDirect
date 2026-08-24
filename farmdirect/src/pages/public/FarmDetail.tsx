@@ -9,6 +9,8 @@ import ProductCard from "../../components/products/ProductCard";
 import WriteReviewForm from "../../components/products/WriteReviewForm";
 import EmptyState from "../../components/ui/EmptyState";
 import Skeleton from "../../components/ui/Skeleton";
+import { useGeolocation } from "../../hooks/useGeolocation";
+import FarmMapPreview from "../../components/maps/FarmMapPreview";
 import { fetchFarm } from "../../services/farmsApi";
 import { fetchFarmer } from "../../services/farmersApi";
 import { fetchProducts } from "../../services/productsApi";
@@ -16,12 +18,27 @@ import * as reviewsApi from "../../services/reviewsApi";
 import { useFavorites } from "../../hooks/useFavorites";
 import type { Farm, Farmer, Product } from "../../types";
 
+function getDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371; // Radius of the earth in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 export default function FarmDetail() {
   const { id } = useParams();
   const [farm, setFarm] = useState<Farm | null | undefined>(undefined);
   const [farmer, setFarmer] = useState<Farmer | null>(null);
   const [farmProducts, setFarmProducts] = useState<Product[]>([]);
   const { isFarmFav, toggleFarm } = useFavorites();
+  const geo = useGeolocation();
 
   useEffect(() => {
     if (!id) return;
@@ -35,6 +52,13 @@ export default function FarmDetail() {
       .then(({ products }) => setFarmProducts(products))
       .catch(() => setFarmProducts([]));
   }, [id]);
+
+  useEffect(() => {
+    if (navigator.geolocation) {
+      geo.request();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (farm === undefined) {
     return (
@@ -63,6 +87,11 @@ export default function FarmDetail() {
   }
 
   const fav = isFarmFav(farm.id);
+  const showDistance =
+    geo.position &&
+    farm.lat !== 0 &&
+    farm.lng !== 0 &&
+    !(farm.lat === 20.5937 && farm.lng === 78.9629);
 
   return (
     <div>
@@ -86,11 +115,17 @@ export default function FarmDetail() {
 
       <Container className="py-stack-lg">
         <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <Rating value={farm.rating} count={farm.reviewCount} />
             <span className="text-body-md text-on-surface-variant flex items-center gap-1">
               <Icon name="location_on" size={18} /> {farm.location}
             </span>
+            {showDistance && geo.position && (
+              <span className="text-body-md text-primary font-semibold flex items-center gap-1">
+                <Icon name="navigation" size={18} />
+                {getDistanceKm(geo.position.lat, geo.position.lng, farm.lat, farm.lng).toFixed(1)} km away
+              </span>
+            )}
           </div>
           <button
             onClick={() => toggleFarm(farm.id)}
@@ -128,27 +163,54 @@ export default function FarmDetail() {
             </div>
           </div>
 
-          {farmer && (
-            <div>
-              <h2 className="font-display text-headline-md text-on-surface mb-3">Farmer</h2>
-              <Link
-                to={`/farmers/${farmer.id}`}
-                className="flex items-center gap-3 p-4 rounded-xl bg-surface-bright border border-surface-variant hover:border-primary-fixed-dim transition-colors"
-              >
-                <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-primary-fixed shrink-0 bg-surface-container">
-                  {farmer.photo && <img src={farmer.photo} alt={farmer.name} className="w-full h-full object-cover" />}
+          <div className="space-y-6">
+            {farmer && (
+              <div>
+                <h2 className="font-display text-headline-md text-on-surface mb-3">Farmer</h2>
+                <Link
+                  to={`/farmers/${farmer.id}`}
+                  className="flex items-center gap-3 p-4 rounded-xl bg-surface-bright border border-surface-variant hover:border-primary-fixed-dim transition-colors animate-fade-in"
+                >
+                  <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-primary-fixed shrink-0 bg-surface-container">
+                    {farmer.photo && <img src={farmer.photo} alt={farmer.name} className="w-full h-full object-cover" />}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-on-surface flex items-center gap-1">
+                      {farmer.name}
+                      {farmer.verified && <Icon name="verified" size={14} className="text-primary" />}
+                    </p>
+                    <p className="text-label-sm text-on-surface-variant">{farmer.experienceYears} years farming</p>
+                  </div>
+                  <Icon name="chevron_right" className="ml-auto text-outline" />
+                </Link>
+              </div>
+            )}
+
+            {farm.lat !== 0 && farm.lng !== 0 && (
+              <div>
+                <h2 className="font-display text-headline-md text-on-surface mb-3">Farm Location</h2>
+                <div className="p-4 rounded-xl bg-surface-bright border border-surface-variant space-y-4">
+                  <FarmMapPreview lat={farm.lat} lng={farm.lng} farmName={farm.name} height={200} />
+                  <div>
+                    <p className="text-label-md font-semibold text-on-surface mb-1 flex items-center gap-1">
+                      <Icon name="location_on" size={16} className="text-primary" />
+                      Address
+                    </p>
+                    <p className="text-body-md text-on-surface-variant">{farm.location}</p>
+                  </div>
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${farm.lat},${farm.lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg border border-surface-variant hover:border-primary text-label-md font-semibold text-on-surface hover:text-primary transition-colors"
+                  >
+                    <Icon name="directions" size={18} />
+                    Get Directions
+                  </a>
                 </div>
-                <div>
-                  <p className="font-semibold text-on-surface flex items-center gap-1">
-                    {farmer.name}
-                    {farmer.verified && <Icon name="verified" size={14} className="text-primary" />}
-                  </p>
-                  <p className="text-label-sm text-on-surface-variant">{farmer.experienceYears} years farming</p>
-                </div>
-                <Icon name="chevron_right" className="ml-auto text-outline" />
-              </Link>
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
 
         <SectionHeading title="Available Products" />

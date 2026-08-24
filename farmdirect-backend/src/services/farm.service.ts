@@ -35,6 +35,8 @@ function toFarmSummary(row: FarmRow, imageUrl?: string) {
     addressLine: row.address_line,
     rating: Number(row.rating_cached),
     reviewCount: row.review_count_cached,
+    latitude: row.lat ? Number(row.lat) : null,
+    longitude: row.lng ? Number(row.lng) : null,
   };
 }
 

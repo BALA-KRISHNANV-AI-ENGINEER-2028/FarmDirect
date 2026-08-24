@@ -12,6 +12,8 @@ import { cn } from "../../utils/cn";
 import { Link } from "react-router-dom";
 import { fetchFarms, fetchNearbyFarms } from "../../services/farmsApi";
 import type { Farm } from "../../types";
+import { useGeolocation } from "../../hooks/useGeolocation";
+import FarmMap from "../../components/maps/FarmMap";
 
 export default function FarmDiscovery() {
   const [view, setView] = useState<"list" | "map">("list");
@@ -21,64 +23,74 @@ export default function FarmDiscovery() {
 
   const [farms, setFarms] = useState<Farm[]>([]);
   const [loading, setLoading] = useState(true);
-  const [geoError, setGeoError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [radiusKm, setRadiusKm] = useState<number>(50);
+  const geo = useGeolocation();
+
+  // Sync geolocation success to userLocation state
+  useEffect(() => {
+    if (geo.status === "success" && geo.position) {
+      setUserLocation({ lat: geo.position.lat, lng: geo.position.lng });
+    }
+  }, [geo.status, geo.position]);
+
+  // Main data fetching effect
   useEffect(() => {
     setLoading(true);
-    setGeoError(null);
+    setError(null);
 
-    if (view === "list") {
-      fetchFarms({ search: search.trim() || undefined, category: category || undefined, verified_only: verifiedOnly, limit: 60 })
+    if (userLocation) {
+      fetchNearbyFarms({
+        lat: userLocation.lat,
+        lng: userLocation.lng,
+        radius_km: radiusKm,
+        category: category || undefined,
+        verified_only: verifiedOnly,
+      })
         .then(({ farms: list }) => setFarms(list))
-        .catch(() => setFarms([]))
-        .finally(() => setLoading(false));
-      return;
-    }
-
-    // Map view uses real PostGIS nearby search, driven by the browser's
-    // geolocation — a genuine use of the farms/nearby endpoint rather than
-    // a stubbed value.
-    if (!navigator.geolocation) {
-      setGeoError("Your browser doesn't support location — showing all farms instead.");
-      fetchFarms({ category: category || undefined, verified_only: verifiedOnly, limit: 60 })
-        .then(({ farms: list }) => setFarms(list))
-        .finally(() => setLoading(false));
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        fetchNearbyFarms({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          radius_km: 200,
-          category: category || undefined,
-          verified_only: verifiedOnly,
+        .catch(() => {
+          setError("Unable to load nearby farms.");
+          setFarms([]);
         })
-          .then(({ farms: list }) => setFarms(list))
-          .catch(() => setFarms([]))
-          .finally(() => setLoading(false));
-      },
-      () => {
-        setGeoError("Location permission denied — showing all farms instead.");
-        fetchFarms({ category: category || undefined, verified_only: verifiedOnly, limit: 60 })
-          .then(({ farms: list }) => setFarms(list))
-          .finally(() => setLoading(false));
-      }
-    );
-  }, [view, search, category, verifiedOnly]);
+        .finally(() => setLoading(false));
+    } else {
+      fetchFarms({
+        search: search.trim() || undefined,
+        category: category || undefined,
+        verified_only: verifiedOnly,
+        limit: 60,
+      })
+        .then(({ farms: list }) => setFarms(list))
+        .catch(() => {
+          setError("Unable to load farms.");
+          setFarms([]);
+        })
+        .finally(() => setLoading(false));
+    }
+  }, [userLocation, radiusKm, search, category, verifiedOnly]);
+
+  const handleClearLocation = () => {
+    setUserLocation(null);
+  };
 
   const filtered = search.trim()
-    ? farms.filter((f) => f.name.toLowerCase().includes(search.toLowerCase()) || f.location.toLowerCase().includes(search.toLowerCase()))
+    ? farms.filter(
+        (f) =>
+          f.name.toLowerCase().includes(search.toLowerCase()) ||
+          f.location.toLowerCase().includes(search.toLowerCase())
+      )
     : farms;
 
   return (
     <Container className="py-stack-lg">
+      {/* Title & View Switcher */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
         <div>
           <h1 className="font-display text-headline-lg-mobile md:text-headline-lg text-on-surface mb-2">Find Nearby Farms</h1>
           <p className="text-body-md text-on-surface-variant">
-            {loading ? "Loading farms..." : `${filtered.length} farms ${view === "map" ? "near you" : "found"}`}
+            {loading ? "Loading farms..." : `${filtered.length} farms ${userLocation ? "near you" : "found"}`}
           </p>
         </div>
         <div className="flex items-center bg-surface-container-low rounded-lg p-1">
@@ -103,6 +115,53 @@ export default function FarmDiscovery() {
         </div>
       </div>
 
+      {/* Geolocation Explanation & Trigger Controls */}
+      <div className="mb-6 bg-surface-container-low border border-surface-variant rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <Icon name="location_on" className="text-primary mt-0.5" size={24} />
+          <div>
+            <p className="font-semibold text-on-surface">Find fresh crops closest to you</p>
+            <p className="text-body-sm text-on-surface-variant">
+              We request your location to find local farmers and list them by real road distance.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 shrink-0">
+          {userLocation ? (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="text-label-sm text-on-surface-variant">Search Radius:</span>
+                <select
+                  value={radiusKm}
+                  onChange={(e) => setRadiusKm(Number(e.target.value))}
+                  className="bg-surface-bright border border-outline-variant rounded-md px-2 py-1 text-label-sm font-semibold text-on-surface"
+                >
+                  <option value={10}>10 km</option>
+                  <option value={25}>25 km</option>
+                  <option value={50}>50 km</option>
+                  <option value={100}>100 km</option>
+                  <option value={200}>200 km</option>
+                </select>
+              </div>
+              <Button variant="outline" size="sm" onClick={handleClearLocation}>
+                Clear Filter
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Icon name="my_location" size={16} />}
+              onClick={geo.request}
+              disabled={geo.status === "loading"}
+            >
+              {geo.status === "loading" ? "Finding location..." : "Use my location"}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Search & Filter Header */}
       <div className="flex flex-col md:flex-row gap-3 mb-6">
         <div className="relative flex-1">
           <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 text-outline" size={20} />
@@ -122,6 +181,7 @@ export default function FarmDiscovery() {
         </Button>
       </div>
 
+      {/* Category Pills */}
       <div className="flex flex-wrap gap-2 mb-4">
         <button
           onClick={() => setCategory("")}
@@ -146,13 +206,28 @@ export default function FarmDiscovery() {
         ))}
       </div>
 
-      {geoError && (
-        <div className="mb-6 p-3 rounded-lg bg-tertiary-fixed/40 border border-tertiary-fixed-dim/30 text-label-sm text-on-tertiary-fixed-variant flex items-center gap-2">
+      {/* Geolocation feedback (if denied or failing) */}
+      {geo.error && (
+        <div className="mb-6 p-3 rounded-lg bg-error-container/40 border border-error/20 text-label-sm text-on-error-container flex items-center gap-2">
           <Icon name="info" size={16} />
-          {geoError}
+          <span>{geo.error}</span>
+          <button onClick={geo.request} className="ml-auto underline font-semibold hover:text-primary">
+            Retry
+          </button>
         </div>
       )}
 
+      {/* General error state */}
+      {error && (
+        <div className="mb-6 p-3 rounded-lg bg-error-container/40 border border-error/20 text-label-sm text-on-error-container flex items-center justify-between">
+          <span>{error}</span>
+          <Button variant="outline" size="sm" onClick={() => setUserLocation(userLocation)}>
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {/* Loading Skeleton */}
       {loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-gutter">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -160,7 +235,15 @@ export default function FarmDiscovery() {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <EmptyState icon="location_off" title="No farms found" description="Try a different search or filter." />
+        <EmptyState
+          icon="location_off"
+          title={userLocation ? "No nearby farms found" : "No farms found"}
+          description={
+            userLocation
+              ? "No farms found within this search radius. Try expanding the radius."
+              : "Try a different search or filter."
+          }
+        />
       ) : view === "list" ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-gutter">
           {filtered.map((f) => (
@@ -169,39 +252,14 @@ export default function FarmDiscovery() {
         </div>
       ) : (
         <div className="grid lg:grid-cols-[1.2fr_1fr] gap-gutter">
-          <div className="relative rounded-xl overflow-hidden bg-surface-container-low border border-surface-variant h-[520px]">
-            <div
-              className="absolute inset-0"
-              style={{
-                backgroundImage:
-                  "linear-gradient(rgba(93,64,55,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(93,64,55,0.03) 1px, transparent 1px)",
-                backgroundSize: "28px 28px",
-              }}
-            />
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-primary ring-8 ring-primary/20" />
-            {filtered.map((f, i) => {
-              const angle = (i / filtered.length) * Math.PI * 2;
-              const radius = 130 + (i % 3) * 40;
-              const x = 50 + (Math.cos(angle) * radius) / 5;
-              const y = 50 + (Math.sin(angle) * radius) / 5;
-              return (
-                <Link
-                  key={f.id}
-                  to={`/farms/${f.id}`}
-                  className="absolute -translate-x-1/2 -translate-y-full flex flex-col items-center group"
-                  style={{ left: `${x}%`, top: `${y}%` }}
-                >
-                  <div className="bg-surface-bright rounded-lg px-2.5 py-1 shadow-md border border-surface-variant text-label-sm font-semibold text-on-surface whitespace-nowrap mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {f.name} · {f.distanceMi} km
-                  </div>
-                  <Icon name="location_on" filled size={32} className="text-primary drop-shadow-md" />
-                </Link>
-              );
-            })}
-            <div className="absolute bottom-3 left-3 text-label-sm text-on-surface-variant bg-surface-bright/90 px-3 py-1.5 rounded-md">
-              Positions are illustrative — distances are real (PostGIS)
-            </div>
-          </div>
+          {/* Map view */}
+          <FarmMap
+            userLat={userLocation?.lat}
+            userLng={userLocation?.lng}
+            farms={filtered}
+            height={520}
+          />
+          {/* Map side-panel list */}
           <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
             {filtered.map((f) => (
               <Link
@@ -217,7 +275,7 @@ export default function FarmDiscovery() {
                   </div>
                   <p className="text-label-sm text-on-surface-variant mb-1">{f.location}</p>
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline">{f.distanceMi} km</Badge>
+                    {f.distanceMi > 0 && <Badge variant="outline">{f.distanceMi} km</Badge>}
                     <Badge variant="outline">{f.farmingMethod}</Badge>
                   </div>
                 </div>

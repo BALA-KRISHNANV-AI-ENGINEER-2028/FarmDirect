@@ -18,6 +18,9 @@ export interface FarmRow {
   created_at: string;
   updated_at: string;
   farmer_name: string;
+  /** Extracted from the PostGIS geography column; null when location is not set. */
+  lat: number | null;
+  lng: number | null;
 }
 
 const db = (client?: PoolClient) => client ?? pool;
@@ -52,7 +55,9 @@ export async function listFarms(
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
   const rowsRes = await db(client).query<FarmRow>(
-    `SELECT f.*, fp.full_name AS farmer_name
+    `SELECT f.*, fp.full_name AS farmer_name,
+            ST_Y(f.location::geometry) AS lat,
+            ST_X(f.location::geometry) AS lng
      FROM farms f
      JOIN farmer_profiles fp ON fp.user_id = f.farmer_id
      ${whereClause}
@@ -71,7 +76,9 @@ export async function listFarms(
 
 export async function findFarmById(id: string, client?: PoolClient): Promise<FarmRow | null> {
   const res = await db(client).query<FarmRow>(
-    `SELECT f.*, fp.full_name AS farmer_name
+    `SELECT f.*, fp.full_name AS farmer_name,
+            ST_Y(f.location::geometry) AS lat,
+            ST_X(f.location::geometry) AS lng
      FROM farms f
      JOIN farmer_profiles fp ON fp.user_id = f.farmer_id
      WHERE f.id = $1 AND f.is_active = true
@@ -83,7 +90,9 @@ export async function findFarmById(id: string, client?: PoolClient): Promise<Far
 
 export async function listFarmsByFarmerId(farmerId: string, client?: PoolClient): Promise<FarmRow[]> {
   const res = await db(client).query<FarmRow>(
-    `SELECT f.*, fp.full_name AS farmer_name
+    `SELECT f.*, fp.full_name AS farmer_name,
+            ST_Y(f.location::geometry) AS lat,
+            ST_X(f.location::geometry) AS lng
      FROM farms f
      JOIN farmer_profiles fp ON fp.user_id = f.farmer_id
      WHERE f.farmer_id = $1 AND f.is_active = true
@@ -138,6 +147,8 @@ export async function listFarmsNearby(
 
   const rowsRes = await db(client).query<FarmWithDistanceRow>(
     `SELECT f.*, fp.full_name AS farmer_name,
+            ST_Y(f.location::geometry) AS lat,
+            ST_X(f.location::geometry) AS lng,
             round((ST_Distance(f.location, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) / 1000)::numeric, 2) AS distance_km
      FROM farms f
      JOIN farmer_profiles fp ON fp.user_id = f.farmer_id

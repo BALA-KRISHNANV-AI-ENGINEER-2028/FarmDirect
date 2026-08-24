@@ -16,6 +16,8 @@ interface ApiFarmSummary {
   rating: number;
   reviewCount: number;
   distanceKm?: number;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 interface ApiFarmDetail extends ApiFarmSummary {
@@ -29,9 +31,7 @@ interface ApiFarmDetail extends ApiFarmSummary {
  * empty array here — the Current Crops section on FarmDetail.tsx will
  * render empty until that's added to a future migration; not something
  * Phase H can add on its own since it wasn't in the reviewed architecture.
- * `lat`/`lng` aren't exposed by the farm detail API (only distanceKm on
- * the nearby-search response), so they default to 0 — nothing in the UI
- * reads them directly except the (already-mock) map preview.
+ * `lat`/`lng` are now mapped from backend coordinate output.
  */
 function toFarm(dto: ApiFarmSummary | ApiFarmDetail): Farm {
   const detail = "gallery" in dto ? dto : null;
@@ -43,8 +43,8 @@ function toFarm(dto: ApiFarmSummary | ApiFarmDetail): Farm {
     gallery: detail?.gallery ?? (dto.image ? [dto.image] : []),
     location: dto.addressLine ?? "",
     distanceMi: dto.distanceKm ?? 0,
-    lat: 0,
-    lng: 0,
+    lat: dto.latitude ?? 0,
+    lng: dto.longitude ?? 0,
     sizeAcres: dto.sizeAcres ?? 0,
     farmingMethod: (dto.farmingMethod ?? "Conventional") as Farm["farmingMethod"],
     yearsActive: dto.yearsActive ?? 0,
