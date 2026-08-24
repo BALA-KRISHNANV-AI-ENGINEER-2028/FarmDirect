@@ -6,7 +6,7 @@ export type UserRole = "customer" | "farmer";
 export interface UserRow {
   id: string;
   email: string;
-  password_hash: string;
+  password_hash: string | null;
   role: UserRole;
   phone: string | null;
   is_active: boolean;
@@ -30,14 +30,14 @@ export async function findUserById(id: string, client?: PoolClient): Promise<Use
 }
 
 export async function insertUser(
-  input: { email: string; passwordHash: string; role: UserRole; phone?: string | null },
+  input: { email: string; passwordHash: string | null; role: UserRole; phone?: string | null },
   client?: PoolClient
 ): Promise<UserRow> {
   const res = await db(client).query<UserRow>(
     `INSERT INTO users (email, password_hash, role, phone)
      VALUES ($1, $2, $3, $4)
      RETURNING *`,
-    [input.email, input.passwordHash, input.role, input.phone ?? null]
+    [input.email, input.passwordHash ?? null, input.role, input.phone ?? null]
   );
   return res.rows[0];
 }

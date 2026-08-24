@@ -69,6 +69,13 @@ export async function login(email: string, password: string): Promise<AuthResult
     throw HttpError.unauthorized("Invalid email or password.");
   }
 
+  // OAuth-only accounts have no password_hash (null after the OAuth migration).
+  // Rather than passing null to bcrypt (which throws), return the same generic
+  // 401 — these users must sign in via their provider.
+  if (!user.password_hash) {
+    throw HttpError.unauthorized("Invalid email or password.");
+  }
+
   const valid = await verifyPassword(password, user.password_hash);
   if (!valid) {
     throw HttpError.unauthorized("Invalid email or password.");
