@@ -7,6 +7,8 @@ import { fetchFarmerOrders, updateOrderStatus } from "../../services/ordersApi";
 import { formatINR } from "../../utils/format";
 import { cn } from "../../utils/cn";
 import type { FarmerOrderStatus, Order, OrderStatus } from "../../types";
+import { useToast } from "../../components/ui/Toast";
+import { getErrorMessage } from "../../services/apiClient";
 
 const columns: FarmerOrderStatus[] = ["New", "Accepted", "Preparing", "Ready for Pickup", "Completed"];
 
@@ -23,6 +25,7 @@ const nextStatus: Record<OrderStatus, OrderStatus | null> = {
 export default function FarmerOrders() {
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [advancing, setAdvancing] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   const load = () => {
     fetchFarmerOrders()
@@ -38,9 +41,10 @@ export default function FarmerOrders() {
     setAdvancing(order.id);
     try {
       await updateOrderStatus(order.id, next);
+      showToast(`Order #${order.orderNumber} updated`, "success");
       load();
-    } catch {
-      // no-op — an invalid/rejected transition just leaves the board unchanged
+    } catch (err) {
+      showToast(getErrorMessage(err), "error");
     } finally {
       setAdvancing(null);
     }

@@ -38,12 +38,17 @@ import { ForgotPassword, ResetPassword } from "./pages/auth/PasswordFlows";
 
 import NotFound from "./pages/public/NotFound";
 
+import { ErrorBoundary } from "./components/ui/ErrorBoundary";
+import { ToastProvider } from "./components/ui/Toast";
+
 export default function App() {
   return (
-    <AuthProvider>
-      <CartProvider>
-        <FavoritesProvider>
-          <BrowserRouter>
+    <ErrorBoundary>
+      <AuthProvider>
+        <CartProvider>
+          <FavoritesProvider>
+            <ToastProvider>
+              <BrowserRouter>
             <Routes>
               {/* Public & Guest accessible customer layout routes */}
               <Route element={<CustomerLayout />}>
@@ -92,8 +97,10 @@ export default function App() {
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
-        </FavoritesProvider>
-      </CartProvider>
-    </AuthProvider>
+        </ToastProvider>
+      </FavoritesProvider>
+    </CartProvider>
+  </AuthProvider>
+</ErrorBoundary>
   );
 }

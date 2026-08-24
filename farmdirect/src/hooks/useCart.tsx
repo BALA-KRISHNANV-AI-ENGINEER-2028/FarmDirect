@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { useAuth } from "./useAuth";
 import * as cartApi from "../services/cartApi";
 import { fetchProduct } from "../services/productsApi";
+import { useToast } from "../components/ui/Toast";
+import { getErrorMessage } from "../services/apiClient";
 
 export interface EnrichedCartItem {
   productId: string;
@@ -63,6 +65,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth();
   const [items, setItems] = useState<EnrichedCartItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const { showToast } = useToast();
 
   // Guests: resolve product details for whatever's in localStorage so the
   // cart page can render name/price/image without needing mock data.
@@ -109,26 +112,36 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, [user, authLoading]);
 
   const removeItem = async (productId: string) => {
-    if (user) {
-      const cart = await cartApi.removeCartItem(productId);
-      setItems(fromApiCart(cart));
-    } else {
-      const quantities = readGuestQuantities();
-      delete quantities[productId];
-      writeGuestQuantities(quantities);
-      await hydrateGuestCart();
+    try {
+      if (user) {
+        const cart = await cartApi.removeCartItem(productId);
+        setItems(fromApiCart(cart));
+      } else {
+        const quantities = readGuestQuantities();
+        delete quantities[productId];
+        writeGuestQuantities(quantities);
+        await hydrateGuestCart();
+      }
+      showToast("Item removed from basket", "info");
+    } catch (err) {
+      showToast(getErrorMessage(err), "error");
     }
   };
 
   const addItem = async (productId: string, quantity = 1) => {
-    if (user) {
-      const cart = await cartApi.addCartItem(productId, quantity);
-      setItems(fromApiCart(cart));
-    } else {
-      const quantities = readGuestQuantities();
-      quantities[productId] = (quantities[productId] ?? 0) + quantity;
-      writeGuestQuantities(quantities);
-      await hydrateGuestCart();
+    try {
+      if (user) {
+        const cart = await cartApi.addCartItem(productId, quantity);
+        setItems(fromApiCart(cart));
+      } else {
+        const quantities = readGuestQuantities();
+        quantities[productId] = (quantities[productId] ?? 0) + quantity;
+        writeGuestQuantities(quantities);
+        await hydrateGuestCart();
+      }
+      showToast("Item added to basket!", "success");
+    } catch (err) {
+      showToast(getErrorMessage(err), "error");
     }
   };
 
@@ -137,14 +150,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
       await removeItem(productId);
       return;
     }
-    if (user) {
-      const cart = await cartApi.updateCartItem(productId, quantity);
-      setItems(fromApiCart(cart));
-    } else {
-      const quantities = readGuestQuantities();
-      quantities[productId] = quantity;
-      writeGuestQuantities(quantities);
-      await hydrateGuestCart();
+    try {
+      if (user) {
+        const cart = await cartApi.updateCartItem(productId, quantity);
+        setItems(fromApiCart(cart));
+      } else {
+        const quantities = readGuestQuantities();
+        quantities[productId] = quantity;
+        writeGuestQuantities(quantities);
+        await hydrateGuestCart();
+      }
+    } catch (err) {
+      showToast(getErrorMessage(err), "error");
     }
   };
 

@@ -11,10 +11,13 @@ import { fetchMyFarms } from "../../services/farmsApi";
 import { fetchProducts, deleteProduct } from "../../services/productsApi";
 import { formatINR } from "../../utils/format";
 import type { Product } from "../../types";
+import { useToast } from "../../components/ui/Toast";
+import { getErrorMessage } from "../../services/apiClient";
 
 export default function FarmerProducts() {
   const [search, setSearch] = useState("");
   const [products, setProducts] = useState<Product[] | null>(null);
+  const { showToast } = useToast();
 
   const load = () => {
     fetchMyFarms()
@@ -28,8 +31,13 @@ export default function FarmerProducts() {
   const filtered = (products ?? []).filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
 
   const handleDelete = async (id: string) => {
-    await deleteProduct(id);
-    setProducts((prev) => (prev ? prev.filter((p) => p.id !== id) : prev));
+    try {
+      await deleteProduct(id);
+      setProducts((prev) => (prev ? prev.filter((p) => p.id !== id) : prev));
+      showToast("Product deleted successfully", "info");
+    } catch (err) {
+      showToast(getErrorMessage(err), "error");
+    }
   };
 
   if (products === null) {

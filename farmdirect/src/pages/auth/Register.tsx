@@ -4,7 +4,7 @@ import Button from "../../components/ui/Button";
 import { Field, Input } from "../../components/ui/Input";
 import GoogleButton from "../../components/auth/GoogleButton";
 import { useAuth } from "../../hooks/useAuth";
-import { ApiError } from "../../services/apiClient";
+import { getErrorMessage } from "../../services/apiClient";
 import { cn } from "../../utils/cn";
 
 export default function Register() {
@@ -27,7 +27,7 @@ export default function Register() {
       const user = await register({ email, password, role, fullName, phone: phone || undefined, farmName: role === "farmer" ? farmName : undefined });
       navigate(user.role === "customer" ? "/customer/dashboard" : "/farmer/dashboard");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setError(getErrorMessage(err));
       setSubmitting(false);
     }
   };

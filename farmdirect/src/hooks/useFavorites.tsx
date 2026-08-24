@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "./useAuth";
 import * as favoritesApi from "../services/favoritesApi";
+import { useToast } from "../components/ui/Toast";
 
 interface FavoritesState {
   products: string[];
@@ -36,6 +37,7 @@ function writeGuestFavorites(state: FavoritesState) {
 export function FavoritesProvider({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth();
   const [state, setState] = useState<FavoritesState>({ products: [], farms: [], farmers: [] });
+  const { showToast } = useToast();
 
   useEffect(() => {
     if (authLoading) return;
@@ -57,6 +59,8 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
     const has = state[key].includes(id);
     const next: FavoritesState = { ...state, [key]: has ? state[key].filter((x) => x !== id) : [...state[key], id] };
     setState(next);
+    const label = key === "products" ? "Product" : key === "farms" ? "Farm" : "Farmer";
+    showToast(has ? `Removed ${label} from favorites` : `Saved ${label} to favorites`, "info");
 
     if (user) {
       const apiKind = key === "products" ? "Product" : key === "farms" ? "Farm" : "Farmer";

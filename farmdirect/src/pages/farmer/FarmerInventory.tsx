@@ -6,10 +6,13 @@ import Skeleton from "../../components/ui/Skeleton";
 import { fetchInventory, adjustInventory } from "../../services/inventoryApi";
 import { formatDate } from "../../utils/format";
 import type { InventoryItem } from "../../types";
+import { useToast } from "../../components/ui/Toast";
+import { getErrorMessage } from "../../services/apiClient";
 
 export default function FarmerInventory() {
   const [inventory, setInventory] = useState<InventoryItem[] | null>(null);
   const [adjusting, setAdjusting] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   const load = () => {
     fetchInventory()
@@ -23,9 +26,10 @@ export default function FarmerInventory() {
     setAdjusting(productId);
     try {
       await adjustInventory(productId, change, change > 0 ? "harvest" : "adjustment");
+      showToast(`Stock updated (${change > 0 ? `+${change}` : change})`, "success");
       load();
-    } catch {
-      // no-op — a failed adjustment (e.g. would go negative) just leaves stock unchanged
+    } catch (err) {
+      showToast(getErrorMessage(err), "error");
     } finally {
       setAdjusting(null);
     }

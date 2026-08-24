@@ -8,13 +8,15 @@ import Skeleton from "../../components/ui/Skeleton";
 import { categories } from "../../data/categories";
 import { fetchMyFarms } from "../../services/farmsApi";
 import { createProduct, updateProduct, fetchProduct } from "../../services/productsApi";
-import { ApiError } from "../../services/apiClient";
+import { getErrorMessage } from "../../services/apiClient";
 import type { Farm } from "../../types";
+import { useToast } from "../../components/ui/Toast";
 
 export default function AddProduct() {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = Boolean(id);
+  const { showToast } = useToast();
 
   const [farms, setFarms] = useState<Farm[]>([]);
   const [loadingInitial, setLoadingInitial] = useState(true);
@@ -93,9 +95,10 @@ export default function AddProduct() {
           images,
         });
       }
+      showToast(isEdit ? "Product updated successfully" : "Product published successfully", "success");
       navigate("/farmer/products");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setError(getErrorMessage(err));
       setSubmitting(false);
     }
   };

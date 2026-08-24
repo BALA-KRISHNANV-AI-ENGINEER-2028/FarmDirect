@@ -33,18 +33,41 @@ interface RequestOptions extends Omit<RequestInit, "body"> {
   skipAuthRetry?: boolean;
 }
 
+export function getErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 401) return "Your session has expired. Please sign in again.";
+    if (err.status === 403) return "You don't have permission to perform this action.";
+    if (err.status === 404) return "The requested item could not be found.";
+    if (err.status === 409) return err.message || "This action conflicts with the current data. Please refresh and try again.";
+    if (err.status === 429) return "Too many requests. Please wait a moment and try again.";
+    if (err.status >= 500) return "Something went wrong on our server. Please try again.";
+    return err.message;
+  }
+  if (err instanceof Error) {
+    if (err.name === "TypeError" || err.message.toLowerCase().includes("fetch")) {
+      return "Unable to connect to FarmDirect. Check your internet connection.";
+    }
+    return err.message;
+  }
+  return "An unexpected error occurred. Please try again.";
+}
+
 async function rawRequest(path: string, options: RequestOptions = {}): Promise<Response> {
   const { body, skipAuthRetry, headers, ...rest } = options;
-  return fetch(`${API_BASE_URL}${path}`, {
-    ...rest,
-    credentials: "include", // sends the httpOnly refresh-token cookie on /auth/* calls
-    headers: {
-      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      ...headers,
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  try {
+    return await fetch(`${API_BASE_URL}${path}`, {
+      ...rest,
+      credentials: "include", // sends the httpOnly refresh-token cookie on /auth/* calls
+      headers: {
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        ...headers,
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new ApiError(0, "Unable to connect to FarmDirect. Check your internet connection.");
+  }
 }
 
 /**

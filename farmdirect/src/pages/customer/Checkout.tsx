@@ -9,7 +9,7 @@ import { formatINR } from "../../utils/format";
 import { cn } from "../../utils/cn";
 import * as addressesApi from "../../services/addressesApi";
 import * as ordersApi from "../../services/ordersApi";
-import { ApiError } from "../../services/apiClient";
+import { getErrorMessage } from "../../services/apiClient";
 
 const deliveryOptions = [
   { id: "standard", label: "Standard Delivery", desc: "Delivered within 24 hours", price: 25 },
@@ -49,6 +49,11 @@ export default function Checkout() {
   const total = subtotal + deliveryFee;
 
   const handlePlaceOrder = async () => {
+    if (placing) return;
+    if (!selectedAddressId && (!inline.fullName.trim() || !inline.phone.trim() || !inline.addressLine.trim())) {
+      setError("Please fill out all required delivery address fields.");
+      return;
+    }
     setError(null);
     setPlacing(true);
     try {
@@ -61,7 +66,7 @@ export default function Checkout() {
       await clearCart();
       navigate(`/orders/${order.id}`, { state: { justPlaced: true } });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong placing your order. Please try again.");
+      setError(getErrorMessage(err));
       setPlacing(false);
     }
   };

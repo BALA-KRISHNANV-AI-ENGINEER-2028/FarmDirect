@@ -4,7 +4,7 @@ import Button from "../../components/ui/Button";
 import { Field, Input } from "../../components/ui/Input";
 import GoogleButton from "../../components/auth/GoogleButton";
 import { useAuth } from "../../hooks/useAuth";
-import { ApiError } from "../../services/apiClient";
+import { getErrorMessage } from "../../services/apiClient";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -28,7 +28,7 @@ export default function Login() {
       const user = await login(email, password);
       navigate(user.role === "customer" ? "/customer/dashboard" : "/farmer/dashboard");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setError(getErrorMessage(err));
       setSubmitting(false);
     }
   };
