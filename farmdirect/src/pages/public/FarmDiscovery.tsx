@@ -227,29 +227,31 @@ export default function FarmDiscovery() {
         </div>
       )}
 
-      {/* Loading Skeleton */}
-      {loading ? (
+      {/* Loading Skeleton — only shown in LIST view */}
+      {loading && view === "list" ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-gutter">
           {Array.from({ length: 6 }).map((_, i) => (
             <ProductCardSkeleton key={i} />
           ))}
         </div>
-      ) : filtered.length === 0 ? (
-        <EmptyState
-          icon="location_off"
-          title={userLocation ? "No nearby farms found" : "No farms found"}
-          description={
-            userLocation
-              ? "No farms found within this search radius. Try expanding the radius."
-              : "Try a different search or filter."
-          }
-        />
       ) : view === "list" ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-gutter">
-          {filtered.map((f) => (
-            <FarmCard key={f.id} farm={f} />
-          ))}
-        </div>
+        filtered.length === 0 ? (
+          <EmptyState
+            icon="location_off"
+            title={userLocation ? "No nearby farms found" : "No farms found"}
+            description={
+              userLocation
+                ? "No farms found within this search radius. Try expanding the radius."
+                : "Try a different search or filter."
+            }
+          />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-gutter">
+            {filtered.map((f) => (
+              <FarmCard key={f.id} farm={f} />
+            ))}
+          </div>
+        )
       ) : (
         <div className="grid lg:grid-cols-[1.2fr_1fr] gap-gutter">
           {/* Map view */}
@@ -261,26 +263,34 @@ export default function FarmDiscovery() {
           />
           {/* Map side-panel list */}
           <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
-            {filtered.map((f) => (
-              <Link
-                key={f.id}
-                to={`/farms/${f.id}`}
-                className="flex gap-3 p-3 bg-surface-bright rounded-xl border border-surface-variant hover:border-primary-fixed-dim transition-colors"
-              >
-                <img src={f.image} alt={f.name} className="w-20 h-20 rounded-lg object-cover shrink-0" />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <p className="font-display font-semibold text-on-surface truncate">{f.name}</p>
-                    {f.verified && <Icon name="verified" size={14} className="text-primary shrink-0" />}
+            {filtered.length === 0 ? (
+              <div className="p-8 text-center text-on-surface-variant flex flex-col items-center justify-center h-full">
+                <Icon name="location_off" size={48} className="mb-4 opacity-50" />
+                <p className="text-body-lg font-semibold">No farms found in this area</p>
+                <p className="text-body-md mt-2">Try expanding your search radius or moving the map.</p>
+              </div>
+            ) : (
+              filtered.map((f) => (
+                <Link
+                  key={f.id}
+                  to={`/farms/${f.id}`}
+                  className="flex gap-3 p-3 bg-surface-bright rounded-xl border border-surface-variant hover:border-primary-fixed-dim transition-colors"
+                >
+                  <img src={f.image} alt={f.name} className="w-20 h-20 rounded-lg object-cover shrink-0" />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <p className="font-display font-semibold text-on-surface truncate">{f.name}</p>
+                      {f.verified && <Icon name="verified" size={14} className="text-primary shrink-0" />}
+                    </div>
+                    <p className="text-label-sm text-on-surface-variant mb-1">{f.location}</p>
+                    <div className="flex items-center gap-2">
+                      {f.distanceMi > 0 && <Badge variant="outline">{f.distanceMi} km</Badge>}
+                      <Badge variant="outline">{f.farmingMethod}</Badge>
+                    </div>
                   </div>
-                  <p className="text-label-sm text-on-surface-variant mb-1">{f.location}</p>
-                  <div className="flex items-center gap-2">
-                    {f.distanceMi > 0 && <Badge variant="outline">{f.distanceMi} km</Badge>}
-                    <Badge variant="outline">{f.farmingMethod}</Badge>
-                  </div>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              ))
+            )}
           </div>
         </div>
       )}

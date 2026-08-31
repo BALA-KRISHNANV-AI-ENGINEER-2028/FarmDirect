@@ -1,12 +1,19 @@
 /**
- * FarmMap — read-only Leaflet map for farm discovery.
+ * FarmMap — Leaflet map for farm discovery.
  *
- * Shows a customer location marker (blue pulse) and farm markers (green pins).
- * Clicking a farm marker opens a popup with name, distance, and a link to
- * the farm detail page. Works on mobile and desktop. Map is initialised once
- * and updated imperatively when props change, avoiding re-init jank.
+ * ARCHITECTURE:
+ * - The map container div is ALWAYS in the DOM so Leaflet always has a real
+ *   element to measure. We use CSS visibility + a loading overlay instead of
+ *   conditional rendering.
+ * - Map is initialised once when Leaflet becomes ready. We call
+ *   invalidateSize() after init to force Leaflet to measure the container
+ *   after the browser has laid it out.
+ * - Farm data (markers) is completely optional. The map renders with
+ *   farms = [] showing only the "You are here" marker.
+ * - Unmounting cleans up via map.remove() so list→map→list→map toggling
+ *   works without "container already initialized" errors.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLeaflet } from "../../hooks/useLeaflet";
 import Icon from "../ui/Icon";
 import type { Farm } from "../../types";
@@ -15,46 +22,57 @@ export interface FarmMapProps {
   userLat?: number;
   userLng?: number;
   farms: Farm[];
-  /** px height, default 480 */
+  /** px height — must be explicit, default 480 */
   height?: number;
   className?: string;
 }
 
-// Leaflet icon factory — kept outside React render to avoid recreation.
-function makeFarmIcon(L: NonNullable<ReturnType<typeof useLeaflet>["L"]>) {
-  return L.divIcon({
-    className: "",
-    html: `<span class="fd-farm-marker" style="
-      display:inline-flex;align-items:center;justify-content:center;
-      width:32px;height:32px;border-radius:50% 50% 50% 0;
-      background:#2e7d32;border:2px solid #fff;
-      box-shadow:0 2px 6px rgba(0,0,0,.3);
-      transform:rotate(-45deg);
-    "><span style="transform:rotate(45deg);font-size:15px;color:#fff;
-      font-family:'Material Symbols Outlined';font-variation-settings:'FILL' 1">
-        storefront
-      </span></span>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 32],
-    popupAnchor: [0, -34],
-  });
-}
+// Default centre: geographic centre of India
+const DEFAULT_LAT = 20.5937;
+const DEFAULT_LNG = 78.9629;
+const DEFAULT_ZOOM = 5;
+const USER_ZOOM = 12;
 
 function makeUserIcon(L: NonNullable<ReturnType<typeof useLeaflet>["L"]>) {
   return L.divIcon({
     className: "",
-    html: `<span style="
-      display:block;width:16px;height:16px;border-radius:50%;
+    html: `<div style="
+      width:20px;height:20px;border-radius:50%;
       background:#1a73e8;border:3px solid #fff;
-      box-shadow:0 0 0 6px rgba(26,115,232,.25);
-    "></span>`,
-    iconSize: [16, 16],
-    iconAnchor: [8, 8],
-    popupAnchor: [0, -10],
+      box-shadow:0 0 0 8px rgba(26,115,232,.2);
+    "></div>`,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+    popupAnchor: [0, -12],
   });
 }
 
-export default function FarmMap({ userLat, userLng, farms, height = 480, className = "" }: FarmMapProps) {
+function makeFarmIcon(L: NonNullable<ReturnType<typeof useLeaflet>["L"]>) {
+  return L.divIcon({
+    className: "",
+    html: `<div style="
+      display:flex;align-items:center;justify-content:center;
+      width:34px;height:34px;border-radius:50% 50% 50% 0;
+      background:#2e7d32;border:2px solid #fff;
+      box-shadow:0 2px 6px rgba(0,0,0,.35);
+      transform:rotate(-45deg);
+    "><span style="transform:rotate(45deg);font-size:16px;color:#fff;
+      font-family:'Material Symbols Outlined';font-variation-settings:'FILL' 1">
+        storefront
+      </span></div>`,
+    iconSize: [34, 34],
+    iconAnchor: [17, 34],
+    popupAnchor: [0, -36],
+  });
+}
+
+export default function FarmMap({
+  userLat,
+  userLng,
+  farms,
+  height = 480,
+  className = "",
+}: FarmMapProps) {
   const { L, ready } = useLeaflet();
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -63,117 +81,165 @@ export default function FarmMap({ userLat, userLng, farms, height = 480, classNa
   const userMarkerRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const farmMarkersRef = useRef<any[]>([]);
+  const [mapError, setMapError] = useState<string | null>(null);
 
-  // Initialise map once Leaflet is ready.
+  // ── Map initialisation ────────────────────────────────────────────────────
+  // Runs once when Leaflet becomes available. The container div is always
+  // in the DOM at this point (never conditionally rendered), so
+  // getBoundingClientRect() returns real dimensions.
   useEffect(() => {
-    if (!ready || !L || !containerRef.current || mapRef.current) return;
+    if (!ready || !L || !containerRef.current) return;
+    if (mapRef.current) return; // already initialised
 
-    const defaultLat = userLat ?? 20.5937;
-    const defaultLng = userLng ?? 78.9629;
-    const zoom = userLat != null ? 11 : 5;
+    try {
+      const startLat = userLat ?? DEFAULT_LAT;
+      const startLng = userLng ?? DEFAULT_LNG;
+      const zoom = userLat != null ? USER_ZOOM : DEFAULT_ZOOM;
 
-    const map = L.map(containerRef.current, {
-      center: [defaultLat, defaultLng],
-      zoom,
-      zoomControl: true,
-      scrollWheelZoom: true,
-    });
+      const map = L.map(containerRef.current, {
+        center: [startLat, startLng],
+        zoom,
+        zoomControl: true,
+        scrollWheelZoom: true,
+      });
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
-    }).addTo(map);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19,
+      }).addTo(map);
 
-    mapRef.current = map;
+      mapRef.current = map;
 
-    // Clean up on unmount.
+      // Force Leaflet to recalculate the container size after the browser
+      // has painted. This is the key fix for the "blank map" problem.
+      setTimeout(() => {
+        if (mapRef.current) {
+          mapRef.current.invalidateSize();
+        }
+      }, 100);
+    } catch (err) {
+      console.error("[FarmMap] Leaflet init error:", err);
+      setMapError("Map failed to initialise. Please refresh the page.");
+    }
+
     return () => {
-      map.remove();
-      mapRef.current = null;
-      userMarkerRef.current = null;
-      farmMarkersRef.current = [];
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+        userMarkerRef.current = null;
+        farmMarkersRef.current = [];
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready]);
+  }, [ready, L]);
 
-  // Sync user location marker.
+  // ── User location marker ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!ready || !L || !mapRef.current) return;
+    if (!mapRef.current || !L) return;
     const map = mapRef.current;
 
+    // Remove old user marker
     if (userMarkerRef.current) {
       userMarkerRef.current.remove();
       userMarkerRef.current = null;
     }
 
     if (userLat != null && userLng != null) {
-      userMarkerRef.current = L.marker([userLat, userLng], { icon: makeUserIcon(L) })
-        .addTo(map)
-        .bindPopup("📍 Your location");
-      map.setView([userLat, userLng], 11, { animate: true });
+      try {
+        const marker = L.marker([userLat, userLng], { icon: makeUserIcon(L) })
+          .addTo(map)
+          .bindPopup("<strong>📍 You are here</strong>", { maxWidth: 180 });
+        marker.openPopup();
+        userMarkerRef.current = marker;
+        map.setView([userLat, userLng], USER_ZOOM, { animate: true });
+        // Re-measure after pan animation
+        setTimeout(() => map.invalidateSize(), 350);
+      } catch (err) {
+        console.warn("[FarmMap] Failed to place user marker:", err);
+      }
     }
-  }, [ready, L, userLat, userLng]);
+  }, [L, userLat, userLng]);
 
-  // Sync farm markers.
+  // ── Farm markers ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!ready || !L || !mapRef.current) return;
+    if (!mapRef.current || !L) return;
     const map = mapRef.current;
 
-    // Remove old markers.
     farmMarkersRef.current.forEach((m) => m.remove());
     farmMarkersRef.current = [];
 
+    if (farms.length === 0) return;
+
     const farmIcon = makeFarmIcon(L);
-    const latLngs: [number, number][] = [];
+    const validLatLngs: [number, number][] = [];
 
     farms.forEach((farm) => {
-      // Skip farms that have no real coordinates (lat/lng both 0 is the
-      // default sentinel for "unknown" — see farmsApi.ts toFarm()).
-      if (farm.lat === 0 && farm.lng === 0) return;
-      latLngs.push([farm.lat, farm.lng]);
-      const marker = L.marker([farm.lat, farm.lng], { icon: farmIcon })
-        .addTo(map)
-        .bindPopup(
-          `<div style="min-width:160px">
-            <p style="font-weight:600;font-size:14px;margin:0 0 4px">${farm.name}</p>
-            ${farm.location ? `<p style="font-size:12px;color:#666;margin:0 0 4px">${farm.location}</p>` : ""}
-            ${farm.distanceMi ? `<p style="font-size:12px;color:#2e7d32;margin:0 0 8px;font-weight:600">${farm.distanceMi} km away</p>` : ""}
-            <a href="/farms/${farm.id}" style="display:inline-block;font-size:12px;font-weight:600;color:#2e7d32;text-decoration:underline">View farm →</a>
-          </div>`,
-          { maxWidth: 240 }
-        );
-      farmMarkersRef.current.push(marker);
+      if (farm.lat === 0 && farm.lng === 0) return; // no real coords
+      validLatLngs.push([farm.lat, farm.lng]);
+      try {
+        const marker = L.marker([farm.lat, farm.lng], { icon: farmIcon })
+          .addTo(map)
+          .bindPopup(
+            `<div style="min-width:160px;font-family:inherit">
+              <p style="font-weight:700;font-size:14px;margin:0 0 4px;color:#1a1a1a">${farm.name}</p>
+              ${farm.location ? `<p style="font-size:12px;color:#666;margin:0 0 4px">${farm.location}</p>` : ""}
+              ${farm.distanceMi ? `<p style="font-size:12px;color:#2e7d32;margin:0 0 8px;font-weight:600">${farm.distanceMi} km away</p>` : ""}
+              <a href="/farms/${farm.id}" style="display:inline-block;padding:4px 10px;background:#2e7d32;color:#fff;border-radius:6px;font-size:12px;font-weight:600;text-decoration:none">View farm →</a>
+            </div>`,
+            { maxWidth: 240 }
+          );
+        farmMarkersRef.current.push(marker);
+      } catch (err) {
+        console.warn("[FarmMap] Failed to place farm marker:", err);
+      }
     });
 
-    // If we have farms with coords, fit the map to them.
-    if (latLngs.length > 0 && !userLat) {
-      map.fitBounds(L.latLngBounds(latLngs), { padding: [48, 48] });
-    } else if (latLngs.length > 0 && userLat != null && userLng != null) {
-      const allBounds = [[userLat, userLng], ...latLngs] as [number, number][];
-      map.fitBounds(L.latLngBounds(allBounds), { padding: [48, 48] });
+    // Fit bounds to show all farms + user location
+    if (validLatLngs.length > 0) {
+      try {
+        const allPoints: [number, number][] =
+          userLat != null && userLng != null
+            ? [[userLat, userLng], ...validLatLngs]
+            : validLatLngs;
+        map.fitBounds(L.latLngBounds(allPoints), { padding: [48, 48], maxZoom: 14 });
+        setTimeout(() => map.invalidateSize(), 350);
+      } catch {
+        // ignore fitBounds failures
+      }
     }
-  }, [ready, L, farms, userLat, userLng]);
+  }, [L, farms, userLat, userLng]);
 
-  if (!ready) {
-    return (
-      <div
-        className={`flex items-center justify-center rounded-xl bg-surface-container-low border border-surface-variant ${className}`}
-        style={{ height }}
-      >
-        <div className="flex flex-col items-center gap-2 text-on-surface-variant">
-          <Icon name="map" size={32} className="animate-pulse" />
-          <p className="text-label-md">Loading map…</p>
-        </div>
-      </div>
-    );
-  }
-
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
-      ref={containerRef}
-      className={`rounded-xl overflow-hidden border border-surface-variant ${className}`}
+      className={`relative rounded-xl overflow-hidden border border-surface-variant ${className}`}
       style={{ height }}
-      aria-label="Farm map"
-    />
+    >
+      {/* Loading overlay — shown while Leaflet CDN script loads */}
+      {!ready && !mapError && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-surface-container-low">
+          <Icon name="map" size={40} className="text-on-surface-variant animate-pulse mb-3" />
+          <p className="text-label-lg text-on-surface-variant">Loading map…</p>
+          <p className="text-label-sm text-outline mt-1">Fetching Leaflet from CDN</p>
+        </div>
+      )}
+
+      {/* Error overlay */}
+      {mapError && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-surface-container-low">
+          <Icon name="map_off" size={40} className="text-error mb-3" />
+          <p className="text-label-lg text-on-surface-variant">{mapError}</p>
+        </div>
+      )}
+
+      {/* The map container is ALWAYS in the DOM — never conditionally rendered.
+          Leaflet needs a real element with real dimensions to initialise. */}
+      <div
+        ref={containerRef}
+        style={{ width: "100%", height: "100%" }}
+        aria-label="Farm map"
+      />
+    </div>
   );
 }
