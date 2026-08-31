@@ -117,12 +117,22 @@ export default function FarmerProfile() {
 
   const saveLocation = async () => {
     if (!primaryFarm) return;
+    const latNum = Number(latitude);
+    const lngNum = Number(longitude);
+    if (isNaN(latNum) || latNum < -90 || latNum > 90) {
+      showToast("Latitude must be a valid number between -90 and 90", "error");
+      return;
+    }
+    if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) {
+      showToast("Longitude must be a valid number between -180 and 180", "error");
+      return;
+    }
     setSavingLocation(true);
     try {
       const updated = await farmsApi.updateFarm(primaryFarm.id, {
         addressLine: addressLine || undefined,
-        latitude: latitude ? Number(latitude) : undefined,
-        longitude: longitude ? Number(longitude) : undefined,
+        latitude: latNum,
+        longitude: lngNum,
       });
       setFarms((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
       showToast("Farm location and address updated successfully", "success");

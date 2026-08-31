@@ -59,9 +59,11 @@ export default function ProductCard({ product }: { product: Product }) {
           <span className="text-label-md font-semibold text-primary">
             ₹{product.price} / {product.unit}
           </span>
-          <span className="text-label-sm text-outline flex items-center gap-1">
-            <Icon name="location_on" size={16} /> {product.distanceMi} mi
-          </span>
+          {product.distanceMi > 0 && (
+            <span className="text-label-sm text-outline flex items-center gap-1">
+              <Icon name="location_on" size={16} /> {product.distanceMi} km
+            </span>
+          )}
         </div>
         <Button
           variant="secondary"

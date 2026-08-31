@@ -61,7 +61,7 @@ export async function listProducts(
   }
   if (filters.search) {
     params.push(`%${filters.search}%`);
-    conditions.push(`(p.name ILIKE $${params.length} OR f.name ILIKE $${params.length})`);
+    conditions.push(`(p.name ILIKE $${params.length} OR f.name ILIKE $${params.length} OR p.description ILIKE $${params.length} OR p.category ILIKE $${params.length})`);
   }
 
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";

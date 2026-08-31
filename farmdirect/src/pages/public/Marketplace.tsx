@@ -21,19 +21,39 @@ const sortOptions: { value: ProductListParams["sort"] | ""; label: string }[] = 
 
 export default function Marketplace() {
   const [params, setParams] = useSearchParams();
-  const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<ProductListParams["sort"] | "">("");
-  const [showFilters, setShowFilters] = useState(false);
+  const searchParam = params.get("search") || "";
   const activeCategory = params.get("category") || "";
+  const sortParam = (params.get("sort") as ProductListParams["sort"]) || "";
+
+  const [search, setSearch] = useState(searchParam);
+  const [sort, setSort] = useState<ProductListParams["sort"] | "">(sortParam);
+  const [showFilters, setShowFilters] = useState(false);
   const [freshToday, setFreshToday] = useState(false);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  // Sync state from URL search params when params change (e.g. back/forward navigation)
+  useEffect(() => {
+    setSearch(searchParam);
+    setSort(sortParam);
+  }, [searchParam, sortParam]);
+
+  // Debounced search + URL sync + API fetch effect
   useEffect(() => {
     setLoading(true);
     const timeout = setTimeout(() => {
+      // Synchronize search and sort back to URL searchParams without reloading
+      setParams((prev) => {
+        const next = new URLSearchParams(prev);
+        if (search.trim()) next.set("search", search.trim());
+        else next.delete("search");
+        if (sort) next.set("sort", sort);
+        else next.delete("sort");
+        return next;
+      }, { replace: true });
+
       fetchProducts({
         search: search.trim() || undefined,
         category: activeCategory || undefined,
@@ -50,8 +70,25 @@ export default function Marketplace() {
         })
         .finally(() => setLoading(false));
     }, 300);
+
     return () => clearTimeout(timeout);
-  }, [search, activeCategory, sort, freshToday]);
+  }, [search, activeCategory, sort, freshToday, setParams]);
+
+  const handleClearSearch = () => {
+    setSearch("");
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("search");
+      return next;
+    });
+  };
+
+  const handleClearAllFilters = () => {
+    setSearch("");
+    setSort("");
+    setFreshToday(false);
+    setParams({});
+  };
 
   return (
     <Container className="py-stack-lg">
@@ -66,11 +103,20 @@ export default function Marketplace() {
         <div className="relative flex-1">
           <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 text-outline" size={20} />
           <Input
-            placeholder="Search products or farms..."
+            placeholder="Search products, farms, or categories..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-11"
+            className="pl-11 pr-10"
           />
+          {search && (
+            <button
+              onClick={handleClearSearch}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface p-1"
+              aria-label="Clear search"
+            >
+              <Icon name="close" size={18} />
+            </button>
+          )}
         </div>
         <Select value={sort} onChange={(e) => setSort(e.target.value as ProductListParams["sort"] | "")} className="md:w-56">
           {sortOptions.map((o) => (
@@ -133,14 +179,7 @@ export default function Marketplace() {
           title="No products found"
           description="Try adjusting your search or filters to find what you're looking for."
           action={
-            <Button
-              variant="outline"
-              onClick={() => {
-                setSearch("");
-                setParams({});
-                setFreshToday(false);
-              }}
-            >
+            <Button variant="outline" onClick={handleClearAllFilters}>
               Clear Filters
             </Button>
           }
