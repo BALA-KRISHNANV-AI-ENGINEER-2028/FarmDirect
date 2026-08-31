@@ -1,22 +1,32 @@
 /**
- * useLeaflet — lazy CDN loader for Leaflet 1.9.
+ * useLeaflet — production-grade lazy CDN loader for Leaflet 1.9.
  *
- * Loads the Leaflet UMD bundle from unpkg once per page session.
- * Returns { L, ready } — ready is true when window.L is available.
- *
- * Key robustness details:
- * - If the script tag already exists AND window.L is set (already loaded),
- *   we start ready=true immediately.
- * - If the script tag exists but window.L is not set yet (in-flight),
- *   we poll until it appears, avoiding the race where the load event
- *   fired before our listener was attached.
- * - If no script tag exists, we inject it and listen for onload.
+ * Features:
+ * - Checks if window.L & window.L.map is already available.
+ * - Primary CDN (unpkg) with fallbacks (cdnjs, jsDelivr) if primary fails.
+ * - Dynamic CSS injection with anonymous crossOrigin.
+ * - Per-attempt timeout (7s) to guarantee no infinite "Loading map…".
+ * - Returns { L, ready, error, retry } with full error & retry handling.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-const SCRIPT_ID = "leaflet-js";
-const LEAFLET_CDN = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-const LEAFLET_INTEGRITY = "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV/XN2GqaE=";
+const CDNS = [
+  {
+    js: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+    css: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
+  },
+  {
+    js: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js",
+    css: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css",
+  },
+  {
+    js: "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js",
+    css: "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css",
+  },
+];
+
+const SCRIPT_ID_PREFIX = "leaflet-js-cdn-";
+const CSS_ID = "leaflet-css-dynamic";
 
 declare global {
   interface Window {
@@ -28,77 +38,114 @@ declare global {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type LeafletNS = any;
 
-function isLeafletReady(): boolean {
+export function isLeafletReady(): boolean {
   return typeof window !== "undefined" && !!window.L && typeof window.L.map === "function";
 }
 
-export function useLeaflet(): { L: LeafletNS | null; ready: boolean } {
+export function useLeaflet(): {
+  L: LeafletNS | null;
+  ready: boolean;
+  error: string | null;
+  retry: () => void;
+} {
   const [ready, setReady] = useState<boolean>(isLeafletReady);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState<number>(0);
+
+  const retry = useCallback(() => {
+    setError(null);
+    setReady(isLeafletReady());
+    setAttempt((prev) => prev + 1);
+  }, []);
 
   useEffect(() => {
-    // Already ready — nothing to do.
     if (isLeafletReady()) {
       setReady(true);
+      setError(null);
       return;
     }
 
-    let pollInterval: ReturnType<typeof setInterval> | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let pollId: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
 
-    function handleLoaded() {
-      if (pollInterval) clearInterval(pollInterval);
-      // Poll for window.L since onload fires when the script element
-      // finishes downloading, but window.L is set synchronously during
-      // script execution — they should coincide, but poll to be safe.
-      if (isLeafletReady()) {
-        setReady(true);
-      } else {
-        pollInterval = setInterval(() => {
-          if (isLeafletReady()) {
-            clearInterval(pollInterval!);
-            pollInterval = null;
-            setReady(true);
-          }
-        }, 50);
+    // Ensure CSS is injected
+    const ensureCss = (cssUrl: string) => {
+      if (document.getElementById(CSS_ID) || document.querySelector('link[href*="leaflet.css"]')) return;
+      const link = document.createElement("link");
+      link.id = CSS_ID;
+      link.rel = "stylesheet";
+      link.href = cssUrl;
+      link.crossOrigin = "anonymous";
+      document.head.appendChild(link);
+    };
+
+    const tryLoadCdn = (index: number) => {
+      if (cancelled) return;
+      if (index >= CDNS.length) {
+        setError("Unable to load map library from CDN. Please check your connection and click retry.");
+        setReady(false);
+        return;
       }
-    }
 
-    const existing = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
+      const { js, css } = CDNS[index];
+      ensureCss(css);
 
-    if (existing) {
-      // Script tag exists — might have already loaded (window.L not yet set
-      // in our state) or still loading. Start polling.
-      pollInterval = setInterval(() => {
+      const scriptId = `${SCRIPT_ID_PREFIX}${index}`;
+      let script = document.getElementById(scriptId) as HTMLScriptElement | null;
+
+      if (!script) {
+        script = document.createElement("script");
+        script.id = scriptId;
+        script.src = js;
+        script.crossOrigin = "anonymous";
+        script.async = true;
+        document.head.appendChild(script);
+      }
+
+      // Timeout per CDN attempt
+      timeoutId = setTimeout(() => {
+        if (cancelled) return;
+        if (!isLeafletReady()) {
+          console.warn(`[FarmDirect] Leaflet CDN attempt ${index + 1} (${js}) timed out, trying fallback...`);
+          if (pollId) clearInterval(pollId);
+          tryLoadCdn(index + 1);
+        }
+      }, 7000);
+
+      // Poll every 50ms for window.L
+      pollId = setInterval(() => {
+        if (cancelled) return;
         if (isLeafletReady()) {
-          clearInterval(pollInterval!);
-          pollInterval = null;
+          if (pollId) clearInterval(pollId);
+          if (timeoutId) clearTimeout(timeoutId);
           setReady(true);
+          setError(null);
         }
       }, 50);
-      // Belt-and-suspenders: also listen for load event.
-      existing.addEventListener("load", handleLoaded);
-      return () => {
-        existing.removeEventListener("load", handleLoaded);
-        if (pollInterval) clearInterval(pollInterval);
-      };
-    }
 
-    // No script tag yet — inject it.
-    const script = document.createElement("script");
-    script.id = SCRIPT_ID;
-    script.src = LEAFLET_CDN;
-    script.integrity = LEAFLET_INTEGRITY;
-    script.crossOrigin = "";
-    script.async = true;
-    script.onload = handleLoaded;
-    script.onerror = () => {
-      console.error("[FarmDirect] Failed to load Leaflet from CDN. Map will not render.");
+      script.onerror = () => {
+        if (cancelled) return;
+        console.warn(`[FarmDirect] Leaflet CDN attempt ${index + 1} (${js}) failed, trying fallback...`);
+        if (pollId) clearInterval(pollId);
+        if (timeoutId) clearTimeout(timeoutId);
+        tryLoadCdn(index + 1);
+      };
     };
-    document.head.appendChild(script);
+
+    tryLoadCdn(0);
 
     return () => {
-      if (pollInterval) clearInterval(pollInterval);
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      if (pollId) clearInterval(pollId);
     };
-  }, []); // Run once on mount
+  }, [attempt]);
 
-  return { L: ready ? window.L : null, ready };
+  return {
+    L: ready && typeof window !== "undefined" ? window.L : null,
+    ready,
+    error,
+    retry,
+  };
 }

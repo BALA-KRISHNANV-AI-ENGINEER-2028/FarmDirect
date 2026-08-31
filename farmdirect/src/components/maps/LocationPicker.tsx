@@ -30,7 +30,7 @@ export default function LocationPicker({
   onChange,
   height = 360,
 }: LocationPickerProps) {
-  const { L, ready } = useLeaflet();
+  const { L, ready, error: leafletError, retry: retryLeaflet } = useLeaflet();
   const geo = useGeolocation();
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -65,7 +65,6 @@ export default function LocationPicker({
       maxZoom: 19,
     }).addTo(map);
 
-    // Pre-place marker at initial coordinates
     if (initialLat != null && initialLng != null) {
       const marker = L.marker([initialLat, initialLng], { draggable: true }).addTo(map);
       marker.on("dragend", () => {
@@ -75,7 +74,6 @@ export default function LocationPicker({
       markerRef.current = marker;
     }
 
-    // Click to place/move marker
     map.on("click", (e: { latlng: { lat: number; lng: number } }) => {
       const { lat, lng } = e.latlng;
       if (markerRef.current) {
@@ -165,10 +163,17 @@ export default function LocationPicker({
         className="relative rounded-xl overflow-hidden border border-surface-variant"
         style={{ height }}
       >
-        {!ready && (
+        {!ready && !leafletError && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-surface-container-low">
             <Icon name="map" size={32} className="animate-pulse text-on-surface-variant mb-2" />
             <p className="text-label-md text-on-surface-variant">Loading map…</p>
+          </div>
+        )}
+        {leafletError && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-surface-container-low p-3 text-center">
+            <Icon name="map_off" size={28} className="text-error mb-1" />
+            <p className="text-label-sm text-on-surface mb-2">{leafletError}</p>
+            <Button variant="outline" size="sm" onClick={retryLeaflet}>Retry</Button>
           </div>
         )}
         <div

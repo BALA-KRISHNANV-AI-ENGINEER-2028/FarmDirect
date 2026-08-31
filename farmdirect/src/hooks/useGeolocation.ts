@@ -63,7 +63,7 @@ export function useGeolocation(): UseGeolocationResult {
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
           setStatus("denied");
-          setError("Location permission was denied. You can enter coordinates manually.");
+          setError("Location permission was denied. You can still explore farms on the map.");
         } else if (err.code === err.POSITION_UNAVAILABLE) {
           setStatus("unavailable");
           setError("Your current position is unavailable. Try again or enter coordinates manually.");

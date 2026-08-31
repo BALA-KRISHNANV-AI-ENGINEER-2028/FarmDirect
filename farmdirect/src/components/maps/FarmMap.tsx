@@ -10,12 +10,14 @@
  *   after the browser has laid it out.
  * - Farm data (markers) is completely optional. The map renders with
  *   farms = [] showing only the "You are here" marker.
+ * - Handles CDN loading failure with retry button.
  * - Unmounting cleans up via map.remove() so list→map→list→map toggling
  *   works without "container already initialized" errors.
  */
 import { useEffect, useRef, useState } from "react";
 import { useLeaflet } from "../../hooks/useLeaflet";
 import Icon from "../ui/Icon";
+import Button from "../ui/Button";
 import type { Farm } from "../../types";
 
 export interface FarmMapProps {
@@ -73,7 +75,7 @@ export default function FarmMap({
   height = 480,
   className = "",
 }: FarmMapProps) {
-  const { L, ready } = useLeaflet();
+  const { L, ready, error: leafletError, retry: retryLeaflet } = useLeaflet();
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapRef = useRef<any>(null);
@@ -84,9 +86,6 @@ export default function FarmMap({
   const [mapError, setMapError] = useState<string | null>(null);
 
   // ── Map initialisation ────────────────────────────────────────────────────
-  // Runs once when Leaflet becomes available. The container div is always
-  // in the DOM at this point (never conditionally rendered), so
-  // getBoundingClientRect() returns real dimensions.
   useEffect(() => {
     if (!ready || !L || !containerRef.current) return;
     if (mapRef.current) return; // already initialised
@@ -111,8 +110,7 @@ export default function FarmMap({
 
       mapRef.current = map;
 
-      // Force Leaflet to recalculate the container size after the browser
-      // has painted. This is the key fix for the "blank map" problem.
+      // Force Leaflet to recalculate container size
       setTimeout(() => {
         if (mapRef.current) {
           mapRef.current.invalidateSize();
@@ -139,7 +137,6 @@ export default function FarmMap({
     if (!mapRef.current || !L) return;
     const map = mapRef.current;
 
-    // Remove old user marker
     if (userMarkerRef.current) {
       userMarkerRef.current.remove();
       userMarkerRef.current = null;
@@ -153,7 +150,6 @@ export default function FarmMap({
         marker.openPopup();
         userMarkerRef.current = marker;
         map.setView([userLat, userLng], USER_ZOOM, { animate: true });
-        // Re-measure after pan animation
         setTimeout(() => map.invalidateSize(), 350);
       } catch (err) {
         console.warn("[FarmMap] Failed to place user marker:", err);
@@ -195,7 +191,6 @@ export default function FarmMap({
       }
     });
 
-    // Fit bounds to show all farms + user location
     if (validLatLngs.length > 0) {
       try {
         const allPoints: [number, number][] =
@@ -217,24 +212,31 @@ export default function FarmMap({
       style={{ height }}
     >
       {/* Loading overlay — shown while Leaflet CDN script loads */}
-      {!ready && !mapError && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-surface-container-low">
+      {!ready && !leafletError && !mapError && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-surface-container-low p-4 text-center">
           <Icon name="map" size={40} className="text-on-surface-variant animate-pulse mb-3" />
           <p className="text-label-lg text-on-surface-variant">Loading map…</p>
-          <p className="text-label-sm text-outline mt-1">Fetching Leaflet from CDN</p>
+          <p className="text-label-sm text-outline mt-1">Fetching Leaflet map engine</p>
         </div>
       )}
 
-      {/* Error overlay */}
-      {mapError && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-surface-container-low">
+      {/* CDN / Init Error overlay */}
+      {(leafletError || mapError) && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-surface-container-low p-4 text-center">
           <Icon name="map_off" size={40} className="text-error mb-3" />
-          <p className="text-label-lg text-on-surface-variant">{mapError}</p>
+          <p className="text-label-lg font-semibold text-on-surface mb-1">
+            Unable to load map
+          </p>
+          <p className="text-body-sm text-on-surface-variant max-w-xs mb-4">
+            {leafletError || mapError}
+          </p>
+          <Button variant="outline" size="sm" onClick={retryLeaflet}>
+            Retry Loading Map
+          </Button>
         </div>
       )}
 
-      {/* The map container is ALWAYS in the DOM — never conditionally rendered.
-          Leaflet needs a real element with real dimensions to initialise. */}
+      {/* The map container is ALWAYS in the DOM */}
       <div
         ref={containerRef}
         style={{ width: "100%", height: "100%" }}
