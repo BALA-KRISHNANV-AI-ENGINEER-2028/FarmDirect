@@ -26,7 +26,7 @@ const envSchema = z.object({
   CORS_ORIGIN: z
     .string()
     .default("http://localhost:5173")
-    .transform((v) => v.split(",").map((s) => s.trim())),
+    .transform((v) => v.split(",").map((s) => s.trim().replace(/\/+$/, ""))),
 
   COOKIE_SECURE: z
     .string()
