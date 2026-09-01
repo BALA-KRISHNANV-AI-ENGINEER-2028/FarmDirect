@@ -22,6 +22,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // restore the session before rendering anything that depends on it.
   useEffect(() => {
     (async () => {
+      const params = new URLSearchParams(window.location.search);
+      const isGoogleSuccess = params.get("auth") === "google_success";
+
+      // Always try to restore the session on load (access token is memory-only,
+      // so it's lost on every page reload/redirect).
       const restored = await refreshSession();
       if (restored) {
         try {
@@ -30,8 +35,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch {
           setUser(null);
         }
+      } else if (isGoogleSuccess) {
+        // Google OAuth just redirected back. The cookie may have arrived with
+        // this navigation but the first refreshSession() call above might have
+        // raced. Retry once to ensure the session is established.
+        const retried = await refreshSession();
+        if (retried) {
+          try {
+            const me = await authApi.fetchMe();
+            setUser({ id: me.id, email: me.email, role: me.role });
+          } catch {
+            setUser(null);
+          }
+        }
       }
-      const params = new URLSearchParams(window.location.search);
+
       if (params.has("auth")) {
         params.delete("auth");
         const newSearch = params.toString();

@@ -35,13 +35,16 @@ interface RequestOptions extends Omit<RequestInit, "body"> {
 
 export function getErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.status === 401) return "Your session has expired. Please sign in again.";
+    // status 0 = fetch() itself threw (network down / CORS block / wrong URL)
+    if (err.status === 0) return "Unable to connect to FarmDirect. Check your internet connection.";
+    if (err.status === 400) return err.message || "Please check the information you entered.";
+    if (err.status === 401) return err.message || "Invalid email or password.";
     if (err.status === 403) return "You don't have permission to perform this action.";
     if (err.status === 404) return "The requested item could not be found.";
     if (err.status === 409) return err.message || "This action conflicts with the current data. Please refresh and try again.";
     if (err.status === 429) return "Too many requests. Please wait a moment and try again.";
     if (err.status >= 500) return "Something went wrong on our server. Please try again.";
-    return err.message;
+    return err.message || "An unexpected error occurred. Please try again.";
   }
   if (err instanceof Error) {
     if (err.name === "TypeError" || err.message.toLowerCase().includes("fetch")) {

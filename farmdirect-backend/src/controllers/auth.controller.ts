@@ -13,10 +13,16 @@ const REFRESH_COOKIE_NAME = "farmdirect_refresh_token";
  * production) per decision #5; never exposed to frontend JS.
  */
 function refreshCookieOptions(maxAgeMs?: number): CookieOptions {
+  // sameSite: "none" is required in production because the frontend (Vercel)
+  // and backend (Render) are on different origins. "lax" prevents the browser
+  // from sending the cookie in cross-origin fetch() requests, which breaks
+  // session refresh. "none" requires secure:true (HTTPS) which is guaranteed
+  // in production by COOKIE_SECURE=true.
+  const sameSite = env.COOKIE_SECURE ? "none" : "lax";
   return {
     httpOnly: true,
     secure: env.COOKIE_SECURE,
-    sameSite: "lax",
+    sameSite,
     path: "/api/auth",
     ...(maxAgeMs !== undefined ? { maxAge: maxAgeMs } : {}),
   };
@@ -91,6 +97,8 @@ export const googleCallback = asyncHandler(async (req: Request, res: Response) =
   // eslint-disable-next-line no-console
   console.log("[GoogleOAuth] authorization code received");
 
+  const targetOrigin = Array.isArray(env.CORS_ORIGIN) ? env.CORS_ORIGIN[0] : env.CORS_ORIGIN;
+
   try {
     const tokens = await googleAuthService.exchangeCodeForTokens(code);
     const googleUser = await googleAuthService.verifyGoogleToken(tokens.id_token, tokens.access_token);
@@ -102,7 +110,6 @@ export const googleCallback = asyncHandler(async (req: Request, res: Response) =
 
     // eslint-disable-next-line no-console
     console.log("[GoogleOAuth] callback completed successfully, redirecting to frontend");
-    const targetOrigin = Array.isArray(env.CORS_ORIGIN) ? env.CORS_ORIGIN[0] : env.CORS_ORIGIN;
     res.redirect(`${targetOrigin}/?auth=google_success`);
   } catch (error: unknown) {
     // eslint-disable-next-line no-console
@@ -114,7 +121,10 @@ export const googleCallback = asyncHandler(async (req: Request, res: Response) =
       pgDetail: (error as Record<string, unknown>)?.detail,
       stack: error instanceof Error ? error.stack : undefined,
     });
-    throw error;
+    // Always redirect back to frontend with an error code — never let the
+    // error propagate to errorHandler which would return JSON on the Render
+    // domain (the user would see a raw JSON error page, not the FarmDirect UI).
+    res.redirect(`${targetOrigin}/auth/login?error=google_failed`);
   }
 });
 
