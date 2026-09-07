@@ -1,5 +1,6 @@
 import { createApp } from "./app";
 import { closePool, verifyDatabaseConnection } from "./config/database";
+import { ensureDatabaseSchema } from "./config/migrate";
 import { env } from "./config/env";
 
 async function main() {
@@ -7,6 +8,8 @@ async function main() {
     await verifyDatabaseConnection();
     // eslint-disable-next-line no-console
     console.log("✅ Database connection verified");
+
+    await ensureDatabaseSchema();
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("❌ Could not connect to the database. Check DATABASE_URL in .env.", err);

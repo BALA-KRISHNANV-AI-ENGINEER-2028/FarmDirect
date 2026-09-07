@@ -26,6 +26,8 @@ export function createApp(): Express {
   app.use(globalRateLimiter);
 
   app.use("/api", apiRouter);
+  // Also mount apiRouter at root so clients omitting /api (e.g. /auth/login) resolve correctly
+  app.use(apiRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

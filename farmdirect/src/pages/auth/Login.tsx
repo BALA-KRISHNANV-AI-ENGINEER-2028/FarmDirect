@@ -17,6 +17,11 @@ export default function Login() {
       return "Google sign in was cancelled.";
     }
     if (params.get("error") === "google_failed") {
+      const stage = params.get("stage");
+      const reason = params.get("reason");
+      if (stage || reason) {
+        return `Google sign in failed (${stage ? `stage: ${stage}` : ""}${stage && reason ? ", " : ""}${reason ? reason : ""}). Please try again or use email and password.`;
+      }
       return "Google sign in failed. Please try again or use email and password.";
     }
     return null;

@@ -14,16 +14,14 @@ const REFRESH_COOKIE_NAME = "farmdirect_refresh_token";
  */
 function refreshCookieOptions(maxAgeMs?: number): CookieOptions {
   // sameSite: "none" is required in production because the frontend (Vercel)
-  // and backend (Render) are on different origins. "lax" prevents the browser
-  // from sending the cookie in cross-origin fetch() requests, which breaks
-  // session refresh. "none" requires secure:true (HTTPS) which is guaranteed
-  // in production by COOKIE_SECURE=true.
-  const sameSite = env.COOKIE_SECURE ? "none" : "lax";
+  // and backend (Render) are on different origins. "none" requires secure:true (HTTPS).
+  const isProd = env.NODE_ENV === "production" || env.COOKIE_SECURE;
+  const sameSite = isProd ? "none" : "lax";
   return {
     httpOnly: true,
-    secure: env.COOKIE_SECURE,
+    secure: isProd,
     sameSite,
-    path: "/api/auth",
+    path: "/",
     ...(maxAgeMs !== undefined ? { maxAge: maxAgeMs } : {}),
   };
 }
@@ -108,23 +106,34 @@ export const googleCallback = asyncHandler(async (req: Request, res: Response) =
     console.log("[GoogleOAuth] session creation started");
     setRefreshCookie(res, result.refreshToken);
 
+    // Pass token directly in redirect so the frontend can immediately authenticate
+    // even if cross-site cookies are blocked by Safari ITP or third-party cookie restrictions!
+    const redirectUrl = new URL(targetOrigin);
+    redirectUrl.searchParams.set("auth", "google_success");
+    redirectUrl.searchParams.set("token", result.accessToken);
+    redirectUrl.searchParams.set("role", result.user.role);
+
     // eslint-disable-next-line no-console
     console.log("[GoogleOAuth] callback completed successfully, redirecting to frontend");
-    res.redirect(`${targetOrigin}/?auth=google_success`);
+    res.redirect(redirectUrl.toString());
   } catch (error: unknown) {
+    const stage = (error as Record<string, unknown>)?.stage ?? "callback_execution";
+    const errorMessage = error instanceof Error ? error.message : String(error);
     // eslint-disable-next-line no-console
     console.error("[GoogleOAuth] callback stage failed:", {
-      stage: (error as Record<string, unknown>)?.stage ?? "callback_execution",
+      stage,
       errorName: error instanceof Error ? error.name : "UnknownError",
-      errorMessage: error instanceof Error ? error.message : String(error),
+      errorMessage,
       pgErrorCode: (error as Record<string, unknown>)?.code,
       pgDetail: (error as Record<string, unknown>)?.detail,
       stack: error instanceof Error ? error.stack : undefined,
     });
-    // Always redirect back to frontend with an error code — never let the
-    // error propagate to errorHandler which would return JSON on the Render
-    // domain (the user would see a raw JSON error page, not the FarmDirect UI).
-    res.redirect(`${targetOrigin}/auth/login?error=google_failed`);
+
+    const errorRedirectUrl = new URL(`${targetOrigin}/auth/login`);
+    errorRedirectUrl.searchParams.set("error", "google_failed");
+    errorRedirectUrl.searchParams.set("stage", String(stage));
+    errorRedirectUrl.searchParams.set("reason", errorMessage.slice(0, 100));
+    res.redirect(errorRedirectUrl.toString());
   }
 });
 
@@ -142,6 +151,7 @@ export const googleTokenAuth = asyncHandler(async (req: Request, res: Response) 
   }
 
   const result = await googleAuthService.resolveGoogleUser(googleUser, role);
+  setRefreshCookie(res, result.refreshToken);
   res.status(200).json({ user: result.user, accessToken: result.accessToken });
 });
 

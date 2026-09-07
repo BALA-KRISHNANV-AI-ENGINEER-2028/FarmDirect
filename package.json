@@ -1,0 +1,13 @@
+{
+  "name": "farmdirect-monorepo",
+  "private": true,
+  "workspaces": [
+    "farmdirect",
+    "farmdirect-backend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=farmdirect",
+    "build": "npm run build --workspace=farmdirect",
+    "lint": "npm run lint --workspace=farmdirect"
+  }
+}

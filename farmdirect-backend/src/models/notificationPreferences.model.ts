@@ -17,7 +17,10 @@ const db = (client?: PoolClient) => client ?? pool;
 
 /** Called once at registration so every user has a preferences row (all defaults true). */
 export async function insertDefaultNotificationPreferences(userId: string, client?: PoolClient): Promise<void> {
-  await db(client).query(`INSERT INTO notification_preferences (user_id) VALUES ($1)`, [userId]);
+  await db(client).query(
+    `INSERT INTO notification_preferences (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`,
+    [userId]
+  );
 }
 
 export async function findNotificationPreferences(

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as authApi from "../services/authApi";
-import { refreshSession } from "../services/apiClient";
+import { refreshSession, setAccessToken } from "../services/apiClient";
 import type { AuthUser, RegisterInput } from "../services/authApi";
 
 interface AuthContextValue {
@@ -24,34 +24,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       const params = new URLSearchParams(window.location.search);
       const isGoogleSuccess = params.get("auth") === "google_success";
+      const directToken = params.get("token");
 
-      // Always try to restore the session on load (access token is memory-only,
-      // so it's lost on every page reload/redirect).
-      const restored = await refreshSession();
-      if (restored) {
+      if (directToken) {
+        setAccessToken(directToken);
         try {
           const me = await authApi.fetchMe();
           setUser({ id: me.id, email: me.email, role: me.role });
         } catch {
           setUser(null);
         }
-      } else if (isGoogleSuccess) {
-        // Google OAuth just redirected back. The cookie may have arrived with
-        // this navigation but the first refreshSession() call above might have
-        // raced. Retry once to ensure the session is established.
-        const retried = await refreshSession();
-        if (retried) {
+      } else {
+        // Always try to restore the session on load (access token is memory-only,
+        // so it's lost on every page reload/redirect).
+        const restored = await refreshSession();
+        if (restored) {
           try {
             const me = await authApi.fetchMe();
             setUser({ id: me.id, email: me.email, role: me.role });
           } catch {
             setUser(null);
           }
+        } else if (isGoogleSuccess) {
+          // Google OAuth just redirected back. The cookie may have arrived with
+          // this navigation but the first refreshSession() call above might have
+          // raced. Retry once to ensure the session is established.
+          const retried = await refreshSession();
+          if (retried) {
+            try {
+              const me = await authApi.fetchMe();
+              setUser({ id: me.id, email: me.email, role: me.role });
+            } catch {
+              setUser(null);
+            }
+          }
         }
       }
 
-      if (params.has("auth")) {
+      if (params.has("auth") || params.has("token") || params.has("role")) {
         params.delete("auth");
+        params.delete("token");
+        params.delete("role");
         const newSearch = params.toString();
         const newPath = window.location.pathname + (newSearch ? `?${newSearch}` : "");
         window.history.replaceState({}, document.title, newPath);

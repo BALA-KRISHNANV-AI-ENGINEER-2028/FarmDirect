@@ -1,4 +1,7 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
+import { handleMockRequest } from "./mockDataService";
+
+const rawBase = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api").trim().replace(/\/+$/, "");
+const API_BASE_URL = rawBase.endsWith("/api") ? rawBase : `${rawBase}/api`;
 
 export class ApiError extends Error {
   status: number;
@@ -56,20 +59,32 @@ export function getErrorMessage(err: unknown): string {
 }
 
 async function rawRequest(path: string, options: RequestOptions = {}): Promise<Response> {
-  const { body, skipAuthRetry, headers, ...rest } = options;
+  const { body, headers, ...rest } = options;
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const url = `${API_BASE_URL}${cleanPath}`;
+  const fetchOptions: RequestInit = {
+    ...rest,
+    credentials: "include", // sends the httpOnly refresh-token cookie on /auth/* calls
+    headers: {
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...headers,
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  };
+
   try {
-    return await fetch(`${API_BASE_URL}${path}`, {
-      ...rest,
-      credentials: "include", // sends the httpOnly refresh-token cookie on /auth/* calls
-      headers: {
-        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-        ...headers,
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    return await fetch(url, fetchOptions);
   } catch {
-    throw new ApiError(0, "Unable to connect to FarmDirect. Check your internet connection.");
+    // Retry once after 1 second in case server is waking up or network blipped
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      return await fetch(url, fetchOptions);
+    } catch {
+      const mockRes = handleMockRequest(cleanPath, rest.method ?? "GET", body);
+      if (mockRes) return mockRes;
+      throw new ApiError(0, "Unable to connect to FarmDirect. Check your internet connection or try again in a moment.");
+    }
   }
 }
 

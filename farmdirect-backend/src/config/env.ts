@@ -30,12 +30,24 @@ const envSchema = z.object({
 
   COOKIE_SECURE: z
     .string()
-    .default("false")
-    .transform((v) => v === "true"),
+    .optional()
+    .transform((v) => {
+      if (v !== undefined) return v.toLowerCase() === "true";
+      return process.env.NODE_ENV === "production";
+    }),
 
-  GOOGLE_CLIENT_ID: z.string().optional(),
-  GOOGLE_CLIENT_SECRET: z.string().optional(),
-  GOOGLE_CALLBACK_URL: z.string().optional(),
+  GOOGLE_CLIENT_ID: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim().replace(/^["']|["']$/g, "")),
+  GOOGLE_CLIENT_SECRET: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim().replace(/^["']|["']$/g, "")),
+  GOOGLE_CALLBACK_URL: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim().replace(/^["']|["']$/g, "")),
 });
 
 function loadEnv() {

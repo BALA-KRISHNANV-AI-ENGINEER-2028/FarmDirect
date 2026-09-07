@@ -8,7 +8,7 @@
  * Run with: npm run seed
  */
 import "dotenv/config";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { pool, withTransaction } from "../../src/config/database";
 import { env } from "../../src/config/env";
 
