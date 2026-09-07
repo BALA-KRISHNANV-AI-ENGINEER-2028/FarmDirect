@@ -9,8 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
     "typecheck": "tsc --noEmit",
-    "migrate:up": "node-pg-migrate up -m db/migrations --envPath .env",
-    "migrate:down": "node-pg-migrate down -m db/migrations --envPath .env",
+    "migrate:up": "node-pg-migrate up -m db/migrations --envPath .env --ignore-pattern \"(?:\\..*|.*\\.map$|.*\\.d\\.ts$)\"",
+    "migrate:down": "node-pg-migrate down -m db/migrations --envPath .env --ignore-pattern \"(?:\\..*|.*\\.map$|.*\\.d\\.ts$)\"",
     "migrate:create": "node-pg-migrate create -m db/migrations",
     "seed": "ts-node --transpile-only db/seeds/dev.ts"
   },
