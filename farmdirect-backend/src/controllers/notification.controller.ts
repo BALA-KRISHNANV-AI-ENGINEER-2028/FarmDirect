@@ -11,8 +11,26 @@ export const getNotifications = asyncHandler(async (req: Request, res: Response)
   res.status(200).json(paginatedResponse(data, total, pagination));
 });
 
+export const getPreferences = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw HttpError.unauthorized();
+  const preferences = await notificationService.getMyPreferences(req.user.id);
+  res.status(200).json({ preferences });
+});
+
 export const updatePreferences = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) throw HttpError.unauthorized();
   const preferences = await notificationService.updateMyPreferences(req.user.id, req.body);
   res.status(200).json({ preferences });
+});
+
+export const markRead = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw HttpError.unauthorized();
+  await notificationService.markNotificationAsRead(req.params.id, req.user.id);
+  res.status(200).json({ success: true });
+});
+
+export const markAllRead = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw HttpError.unauthorized();
+  await notificationService.markAllNotificationsAsRead(req.user.id);
+  res.status(200).json({ success: true });
 });

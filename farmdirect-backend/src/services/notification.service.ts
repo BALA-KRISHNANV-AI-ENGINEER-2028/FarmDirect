@@ -1,6 +1,11 @@
-import { listNotifications } from "../models/notification.model";
+import {
+  listNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+} from "../models/notification.model";
 import {
   findNotificationPreferences,
+  insertDefaultNotificationPreferences,
   updateNotificationPreferences,
 } from "../models/notificationPreferences.model";
 import { HttpError } from "../utils/httpError";
@@ -17,6 +22,26 @@ function toPreferencesDto(row: NonNullable<Awaited<ReturnType<typeof findNotific
     aiInsightUpdates: row.ai_insight_updates,
     customerReviews: row.customer_reviews,
   };
+}
+
+export async function getMyPreferences(userId: string) {
+  let row = await findNotificationPreferences(userId);
+  if (!row) {
+    await insertDefaultNotificationPreferences(userId);
+    row = await findNotificationPreferences(userId);
+  }
+  if (!row) throw HttpError.notFound("Preferences not found");
+  return toPreferencesDto(row);
+}
+
+export async function markNotificationAsRead(id: string, userId: string) {
+  const updated = await markNotificationRead(id, userId);
+  if (!updated) throw HttpError.notFound("Notification not found");
+  return updated;
+}
+
+export async function markAllNotificationsAsRead(userId: string) {
+  await markAllNotificationsRead(userId);
 }
 
 export async function getMyNotifications(userId: string, pagination: Pagination) {

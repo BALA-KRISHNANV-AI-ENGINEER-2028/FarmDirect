@@ -167,4 +167,15 @@ export const resetPassword = asyncHandler(async (req: Request, res: Response) =>
   res.status(200).json({ message: "Password updated. Please sign in again." });
 });
 
+export const changePassword = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw HttpError.unauthorized();
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    throw HttpError.badRequest("Current password and new password are required.");
+  }
+  await authService.changePassword(req.user.id, currentPassword, newPassword);
+  clearRefreshCookie(res);
+  res.status(200).json({ message: "Password changed successfully. Please log in with your new password." });
+});
+
 

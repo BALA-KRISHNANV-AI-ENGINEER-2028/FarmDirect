@@ -12,7 +12,7 @@ interface ApiOrderItem {
   farmName: string;
 }
 
-interface ApiOrder {
+export interface ApiOrder {
   id: string;
   orderNumber: string;
   status: string;
@@ -75,6 +75,11 @@ export async function fetchMyOrders(): Promise<Order[]> {
 export async function fetchOrder(id: string): Promise<Order> {
   const res = await api.get<{ order: ApiOrder }>(`/orders/${id}`);
   return toOrder(res.order);
+}
+
+export async function fetchOrderDetail(id: string): Promise<ApiOrder> {
+  const res = await api.get<{ order: ApiOrder }>(`/orders/${id}`);
+  return res.order;
 }
 
 export interface CreateOrderInput {

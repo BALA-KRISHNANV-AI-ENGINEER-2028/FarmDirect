@@ -9,5 +9,8 @@
     "dev": "npm run dev --workspace=farmdirect",
     "build": "npm run build --workspace=farmdirect",
     "lint": "npm run lint --workspace=farmdirect"
+  },
+  "dependencies": {
+    "@google/genai": "^2.21.0"
   }
 }

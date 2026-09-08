@@ -47,6 +47,10 @@ export async function resetPassword(token: string, newPassword: string): Promise
   await api.post("/auth/reset-password", { token, newPassword });
 }
 
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await api.post("/auth/change-password", { currentPassword, newPassword });
+}
+
 interface ApiCurrentUser {
   id: string;
   email: string;
@@ -70,6 +74,7 @@ export async function fetchMe(): Promise<ApiCurrentUser> {
 
 export async function updateMe(input: {
   fullName?: string;
+  phone?: string;
   avatarUrl?: string;
   dateOfBirth?: string;
   experienceYears?: number;

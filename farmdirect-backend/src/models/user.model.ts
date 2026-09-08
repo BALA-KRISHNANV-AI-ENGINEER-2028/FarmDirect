@@ -49,3 +49,15 @@ export async function updateUserPasswordHash(
 ): Promise<void> {
   await db(client).query(`UPDATE users SET password_hash = $2 WHERE id = $1`, [userId, passwordHash]);
 }
+
+export async function updateUserPhone(
+  userId: string,
+  phone: string,
+  client?: PoolClient
+): Promise<UserRow | null> {
+  const res = await db(client).query<UserRow>(
+    `UPDATE users SET phone = $2 WHERE id = $1 RETURNING *`,
+    [userId, phone]
+  );
+  return res.rows[0] ?? null;
+}

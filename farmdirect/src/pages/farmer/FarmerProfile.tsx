@@ -7,7 +7,15 @@ import Skeleton from "../../components/ui/Skeleton";
 import { cn } from "../../utils/cn";
 import * as authApi from "../../services/authApi";
 import * as farmsApi from "../../services/farmsApi";
-import { api } from "../../services/apiClient";
+import {
+  fetchNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  fetchNotificationPreferences,
+  updateNotificationPreferences,
+  type NotificationItem,
+  type NotificationPreferences,
+} from "../../services/notificationsApi";
 import type { Farm } from "../../types";
 import LocationPicker from "../../components/maps/LocationPicker";
 import { useToast } from "../../components/ui/Toast";
@@ -20,13 +28,6 @@ const tabs = [
   { id: "security", label: "Security", icon: "lock" },
 ];
 
-interface Preferences {
-  newOrderAlerts: boolean;
-  lowStockAlerts: boolean;
-  aiInsightUpdates: boolean;
-  customerReviews: boolean;
-}
-
 export default function FarmerProfile() {
   const [tab, setTab] = useState("farm");
   const [loading, setLoading] = useState(true);
@@ -34,6 +35,7 @@ export default function FarmerProfile() {
 
   const [me, setMe] = useState<authApi.ApiCurrentUser | null>(null);
   const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
   const [experienceYears, setExperienceYears] = useState("");
   const [story, setStory] = useState("");
   const [savingPersonal, setSavingPersonal] = useState(false);
@@ -50,17 +52,34 @@ export default function FarmerProfile() {
   const [savingFarm, setSavingFarm] = useState(false);
   const [savingLocation, setSavingLocation] = useState(false);
 
-  const [preferences, setPreferences] = useState<Preferences | null>(null);
+  // Security state
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+
+  // Notifications state
+  const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
+  const [notificationsList, setNotificationsList] = useState<NotificationItem[]>([]);
 
   const primaryFarm = farms[0];
 
   useEffect(() => {
-    Promise.all([authApi.fetchMe(), farmsApi.fetchMyFarms()]).then(([user, myFarms]) => {
+    Promise.all([
+      authApi.fetchMe(),
+      farmsApi.fetchMyFarms(),
+      fetchNotificationPreferences().catch(() => null),
+      fetchNotifications().catch(() => []),
+    ]).then(([user, myFarms, pref, notifs]) => {
       setMe(user);
       setFullName(user.profile?.fullName ?? "");
+      setPhone(user.phone ?? "");
       setExperienceYears(user.profile?.experienceYears != null ? String(user.profile.experienceYears) : "");
       setStory(user.profile?.story ?? "");
       setFarms(myFarms);
+      if (pref) setPreferences(pref);
+      setNotificationsList(notifs);
+
       const f = myFarms[0];
       if (f) {
         setFarmName(f.name);
@@ -74,9 +93,6 @@ export default function FarmerProfile() {
       }
       setLoading(false);
     });
-    api.get<{ preferences: Preferences }>("/notifications/preferences").catch(() => null).then((res) => {
-      if (res) setPreferences(res.preferences);
-    });
   }, []);
 
   const savePersonal = async () => {
@@ -84,6 +100,7 @@ export default function FarmerProfile() {
     try {
       await authApi.updateMe({
         fullName,
+        phone: phone || undefined,
         experienceYears: experienceYears ? Number(experienceYears) : undefined,
         story: story || undefined,
       });
@@ -143,11 +160,63 @@ export default function FarmerProfile() {
     }
   };
 
-  const togglePreference = async (key: keyof Preferences) => {
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword.length < 8) {
+      showToast("New password must be at least 8 characters long", "error");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      showToast("New passwords do not match", "error");
+      return;
+    }
+
+    setSavingPassword(true);
+    try {
+      await authApi.changePassword(currentPassword, newPassword);
+      showToast("Password updated successfully", "success");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : "Failed to change password", "error");
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
+  const togglePreference = async (key: keyof NotificationPreferences) => {
     if (!preferences) return;
     const next = { ...preferences, [key]: !preferences[key] };
     setPreferences(next);
-    await api.put("/notifications/preferences", { [key]: next[key] }).catch(() => setPreferences(preferences));
+    try {
+      await updateNotificationPreferences({ [key]: next[key] });
+      showToast("Notification preferences updated", "success");
+    } catch {
+      setPreferences(preferences);
+      showToast("Failed to update preferences", "error");
+    }
+  };
+
+  const handleMarkRead = async (id: string) => {
+    try {
+      await markNotificationRead(id);
+      setNotificationsList((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+      );
+    } catch {
+      showToast("Failed to mark notification read", "error");
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await markAllNotificationsRead();
+      setNotificationsList((prev) => prev.map((n) => ({ ...n, read: true })));
+      showToast("All notifications marked as read", "success");
+    } catch {
+      showToast("Failed to mark all as read", "error");
+    }
   };
 
   if (loading) {
@@ -176,7 +245,7 @@ export default function FarmerProfile() {
               onClick={() => setTab(t.id)}
               className={cn(
                 "flex items-center gap-3 px-4 py-2.5 rounded-lg text-label-md font-semibold whitespace-nowrap transition-colors",
-                tab === t.id ? "bg-primary-container/15 text-primary" : "text-on-surface-variant hover:bg-surface-container-low"
+                tab === t.id ? "bg-primary/10 text-primary font-bold" : "text-on-surface-variant hover:bg-surface-container-low"
               )}
             >
               <Icon name={t.icon} size={18} />
@@ -189,15 +258,29 @@ export default function FarmerProfile() {
           {tab === "personal" && (
             <div className="space-y-5">
               <div className="grid sm:grid-cols-2 gap-4">
-                <Field label="Full Name"><Input value={fullName} onChange={(e) => setFullName(e.target.value)} /></Field>
-                <Field label="Email"><Input value={me?.email ?? ""} disabled /></Field>
-                <Field label="Phone"><Input value={me?.phone ?? ""} disabled /></Field>
+                <Field label="Full Name">
+                  <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
+                </Field>
+                <Field label="Email">
+                  <Input value={me?.email ?? ""} disabled />
+                </Field>
+                <Field label="Phone Number">
+                  <Input
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+91 98765 43210"
+                  />
+                </Field>
                 <Field label="Years Farming">
                   <Input type="number" value={experienceYears} onChange={(e) => setExperienceYears(e.target.value)} />
                 </Field>
               </div>
-              <Field label="Farm Story"><Textarea rows={4} value={story} onChange={(e) => setStory(e.target.value)} /></Field>
-              <Button onClick={savePersonal} disabled={savingPersonal}>{savingPersonal ? "Saving..." : "Save Changes"}</Button>
+              <Field label="Farm Story">
+                <Textarea rows={4} value={story} onChange={(e) => setStory(e.target.value)} />
+              </Field>
+              <Button onClick={savePersonal} disabled={savingPersonal}>
+                {savingPersonal ? "Saving..." : "Save Changes"}
+              </Button>
             </div>
           )}
 
@@ -271,41 +354,159 @@ export default function FarmerProfile() {
           )}
 
           {tab === "notifications" && (
-            <div className="space-y-4">
-              {preferences ? (
-                (
-                  [
-                    ["newOrderAlerts", "New order alerts"],
-                    ["lowStockAlerts", "Low stock alerts"],
-                    ["aiInsightUpdates", "AI insight updates"],
-                    ["customerReviews", "Customer reviews"],
-                  ] as [keyof Preferences, string][]
-                ).map(([key, label]) => (
-                  <label key={key} className="flex items-center justify-between p-3 rounded-lg border border-surface-variant">
-                    <span className="text-body-md text-on-surface">{label}</span>
-                    <input
-                      type="checkbox"
-                      checked={preferences[key]}
-                      onChange={() => togglePreference(key)}
-                      className="accent-primary w-5 h-5"
-                    />
-                  </label>
-                ))
-              ) : (
-                <p className="text-body-md text-on-surface-variant">Loading preferences...</p>
-              )}
+            <div className="space-y-8">
+              <div>
+                <h3 className="text-headline-sm font-semibold text-on-surface mb-2">Notification Preferences</h3>
+                <p className="text-body-sm text-on-surface-variant mb-4">
+                  Select which real-time alerts you want to receive on your dashboard.
+                </p>
+                <div className="space-y-3">
+                  {preferences ? (
+                    (
+                      [
+                        ["newOrderAlerts", "New order alerts", "Get alerted as soon as a customer completes checkout"],
+                        ["lowStockAlerts", "Low stock alerts", "Warnings when inventory reaches critical levels (<10)"],
+                        ["aiInsightUpdates", "AI insight updates", "Fresh harvest and demand recommendations"],
+                        ["customerReviews", "Customer reviews", "Notifications when buyers rate your harvest"],
+                      ] as [keyof NotificationPreferences, string, string][]
+                    ).map(([key, label, desc]) => (
+                      <label key={key} className="flex items-center justify-between p-3.5 rounded-xl border border-surface-variant hover:bg-surface-container-low/50 cursor-pointer transition-colors">
+                        <div>
+                          <p className="text-body-md font-semibold text-on-surface">{label}</p>
+                          <p className="text-label-xs text-on-surface-variant">{desc}</p>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(preferences[key])}
+                          onChange={() => togglePreference(key)}
+                          className="accent-primary w-5 h-5 cursor-pointer"
+                        />
+                      </label>
+                    ))
+                  ) : (
+                    <p className="text-body-md text-on-surface-variant">Loading preferences...</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-6 border-t border-surface-variant">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-headline-sm font-semibold text-on-surface">Recent Notifications</h3>
+                    <p className="text-label-sm text-on-surface-variant">Your activity log and alerts.</p>
+                  </div>
+                  {notificationsList.some((n) => !n.read) && (
+                    <button
+                      onClick={handleMarkAllRead}
+                      className="text-label-sm font-semibold text-primary hover:underline"
+                    >
+                      Mark all as read
+                    </button>
+                  )}
+                </div>
+
+                {notificationsList.length === 0 ? (
+                  <p className="text-body-md text-on-surface-variant py-4">No notifications yet.</p>
+                ) : (
+                  <div className="space-y-2.5">
+                    {notificationsList.map((notif) => (
+                      <div
+                        key={notif.id}
+                        className={`p-3.5 rounded-xl border transition-colors flex items-start justify-between gap-3 ${
+                          notif.read
+                            ? "bg-surface-bright border-surface-variant text-on-surface-variant"
+                            : "bg-primary/5 border-primary/30 text-on-surface"
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <Icon
+                            name={
+                              notif.type === "new_order"
+                                ? "receipt_long"
+                                : notif.type === "low_stock"
+                                ? "warning"
+                                : notif.type === "ai_insight"
+                                ? "auto_awesome"
+                                : "notifications"
+                            }
+                            size={20}
+                            className={notif.read ? "text-on-surface-variant mt-0.5" : "text-primary mt-0.5"}
+                          />
+                          <div>
+                            <p className="text-body-sm font-semibold">{notif.title}</p>
+                            <p className="text-body-xs opacity-90">{notif.message}</p>
+                            <p className="text-label-xs opacity-60 mt-1">
+                              {new Date(notif.createdAt).toLocaleDateString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </p>
+                          </div>
+                        </div>
+                        {!notif.read && (
+                          <button
+                            onClick={() => handleMarkRead(notif.id)}
+                            className="text-label-xs font-semibold text-primary hover:underline shrink-0"
+                          >
+                            Mark read
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
           {tab === "security" && (
-            <div className="space-y-5 max-w-sm">
-              <p className="text-body-md text-on-surface-variant">
-                To change your password, use the{" "}
-                <a href="/auth/forgot-password" className="text-primary font-semibold hover:underline">
-                  forgot password
-                </a>{" "}
-                flow.
+            <div className="max-w-md">
+              <h3 className="text-headline-sm font-semibold text-on-surface mb-2">Change Password</h3>
+              <p className="text-body-sm text-on-surface-variant mb-6">
+                Ensure your account is using a long, random password to stay secure.
               </p>
+
+              <form onSubmit={handlePasswordChange} className="space-y-4">
+                <Field label="Current Password">
+                  <Input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    placeholder="Enter current password"
+                    required
+                  />
+                </Field>
+
+                <Field label="New Password (min 8 characters)">
+                  <Input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Enter new password"
+                    minLength={8}
+                    required
+                  />
+                </Field>
+
+                <Field label="Confirm New Password">
+                  <Input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter new password"
+                    minLength={8}
+                    required
+                  />
+                </Field>
+
+                <div className="pt-2">
+                  <Button type="submit" disabled={savingPassword}>
+                    {savingPassword ? "Updating Password..." : "Update Password"}
+                  </Button>
+                </div>
+              </form>
             </div>
           )}
         </div>

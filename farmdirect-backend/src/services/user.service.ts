@@ -1,6 +1,6 @@
 import { findCustomerProfileByUserId, updateCustomerProfile, type CustomerProfileRow } from "../models/customerProfile.model";
 import { findFarmerProfileByUserId, updateFarmerProfile, type FarmerProfileRow } from "../models/farmerProfile.model";
-import { findUserById, type UserRow } from "../models/user.model";
+import { findUserById, updateUserPhone, type UserRow } from "../models/user.model";
 import { HttpError } from "../utils/httpError";
 
 /**
@@ -58,6 +58,7 @@ export async function getCurrentUser(userId: string) {
 
 export interface UpdateProfileInput {
   fullName?: string;
+  phone?: string;
   avatarUrl?: string;
   // customer-only
   dateOfBirth?: string;
@@ -67,8 +68,13 @@ export interface UpdateProfileInput {
 }
 
 export async function updateCurrentUser(userId: string, input: UpdateProfileInput) {
-  const user = await findUserById(userId);
+  let user = await findUserById(userId);
   if (!user) throw HttpError.notFound("User not found");
+
+  if (input.phone !== undefined) {
+    const updatedUser = await updateUserPhone(userId, input.phone);
+    if (updatedUser) user = updatedUser;
+  }
 
   const profile =
     user.role === "customer"

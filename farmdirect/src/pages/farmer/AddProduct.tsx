@@ -192,10 +192,62 @@ export default function AddProduct() {
         </section>
 
         <section className="bg-surface-bright rounded-xl border border-surface-variant p-6 space-y-5">
-          <h2 className="font-display text-headline-sm text-on-surface">Images</h2>
-          <div className="flex gap-2">
+          <h2 className="font-display text-headline-sm text-on-surface">Product Images</h2>
+          
+          {/* Drag and Drop / File Input */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const files = Array.from(e.dataTransfer.files).filter((file) =>
+                file.type.startsWith("image/")
+              );
+              files.forEach((file) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                  if (typeof reader.result === "string") {
+                    setImages((prev) => [...prev, reader.result as string]);
+                  }
+                };
+                reader.readAsDataURL(file);
+              });
+            }}
+            className="border-2 border-dashed border-surface-variant rounded-xl p-6 text-center hover:border-primary transition-colors cursor-pointer bg-surface-container-low/30"
+            onClick={() => document.getElementById("product-image-file-input")?.click()}
+          >
+            <input
+              id="product-image-file-input"
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []).filter((file) =>
+                  file.type.startsWith("image/")
+                );
+                files.forEach((file) => {
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    if (typeof reader.result === "string") {
+                      setImages((prev) => [...prev, reader.result as string]);
+                    }
+                  };
+                  reader.readAsDataURL(file);
+                });
+              }}
+            />
+            <Icon name="cloud_upload" size={32} className="mx-auto text-primary mb-2" />
+            <p className="text-body-md font-semibold text-on-surface">Drag & drop product images, or browse</p>
+            <p className="text-label-xs text-on-surface-variant mt-1">Supports PNG, JPG, WebP up to 5MB</p>
+          </div>
+
+          <div className="flex gap-2 items-center">
             <Input
-              placeholder="Paste an image URL"
+              placeholder="Or paste an image URL..."
               value={imageUrlInput}
               onChange={(e) => setImageUrlInput(e.target.value)}
               onKeyDown={(e) => {
@@ -205,17 +257,18 @@ export default function AddProduct() {
                 }
               }}
             />
-            <Button type="button" variant="outline" onClick={addImageUrl}>Add</Button>
+            <Button type="button" variant="outline" onClick={addImageUrl}>Add URL</Button>
           </div>
+
           {images.length > 0 && (
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-3 pt-2">
               {images.map((img, i) => (
-                <div key={img + i} className="w-24 h-24 rounded-lg overflow-hidden relative">
+                <div key={img + i} className="w-24 h-24 rounded-lg overflow-hidden relative border border-surface-variant group">
                   <img src={img} alt="" className="w-full h-full object-cover" />
                   <button
                     type="button"
                     onClick={() => setImages((prev) => prev.filter((_, idx) => idx !== i))}
-                    className="absolute top-1 right-1 w-5 h-5 bg-surface-bright/90 rounded-full flex items-center justify-center"
+                    className="absolute top-1 right-1 w-6 h-6 bg-surface-bright/90 rounded-full flex items-center justify-center shadow hover:bg-error hover:text-white transition-colors"
                   >
                     <Icon name="close" size={14} />
                   </button>

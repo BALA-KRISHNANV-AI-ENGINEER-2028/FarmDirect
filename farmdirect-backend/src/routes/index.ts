@@ -11,6 +11,8 @@ import { cartRouter } from "./cart.routes";
 import { addressRouter } from "./address.routes";
 import { orderRouter } from "./order.routes";
 import { farmerOrdersRouter } from "./farmerOrders.routes";
+import { farmerAnalyticsRouter } from "./farmerAnalytics.routes";
+import { farmerAIInsightsRouter } from "./farmerAIInsights.routes";
 import { favoriteRouter } from "./favorite.routes";
 import { notificationRouter } from "./notification.routes";
 
@@ -26,6 +28,8 @@ apiRouter.use("/cart", cartRouter);
 apiRouter.use("/addresses", addressRouter);
 apiRouter.use("/orders", orderRouter);
 apiRouter.use("/farmer/orders", farmerOrdersRouter);
+apiRouter.use("/farmer/analytics", farmerAnalyticsRouter);
+apiRouter.use("/farmer/ai-insights", farmerAIInsightsRouter);
 apiRouter.use("/favorites", favoriteRouter);
 apiRouter.use("/notifications", notificationRouter);
 

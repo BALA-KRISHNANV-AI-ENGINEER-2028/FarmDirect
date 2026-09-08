@@ -147,6 +147,25 @@ export async function resetPassword(rawToken: string, newPassword: string): Prom
   });
 }
 
+export async function changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
+  const user = await findUserById(userId);
+  if (!user || !user.password_hash) {
+    throw HttpError.unauthorized("User not found or password not set.");
+  }
+  const match = await verifyPassword(currentPassword, user.password_hash);
+  if (!match) {
+    throw HttpError.badRequest("Current password does not match.");
+  }
+  if (newPassword.length < 8) {
+    throw HttpError.badRequest("New password must be at least 8 characters long.");
+  }
+  const passwordHash = await hashPassword(newPassword);
+  await withTransaction(async (client) => {
+    await updateUserPasswordHash(userId, passwordHash, client);
+    await revokeAllRefreshTokensForUser(userId, client);
+  });
+}
+
 export const refreshTokenCookieMaxAgeMs = () => {
   return refreshTokenExpiry().getTime() - Date.now();
 };

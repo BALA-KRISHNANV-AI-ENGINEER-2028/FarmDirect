@@ -56,3 +56,19 @@ export async function adjustInventory(
   );
   return res.data;
 }
+
+export interface InventoryMovementRecord {
+  id: string;
+  change: number;
+  reason: string;
+  note: string | null;
+  createdAt: string;
+  orderId?: string | null;
+}
+
+export type InventoryMovement = InventoryMovementRecord;
+
+export async function fetchInventoryMovements(productId: string): Promise<InventoryMovementRecord[]> {
+  const res = await api.get<{ data: InventoryMovementRecord[] }>(`/inventory/${productId}/movements`);
+  return res.data;
+}

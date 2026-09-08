@@ -28,3 +28,19 @@ export async function listNotifications(
   ]);
   return { rows: rowsRes.rows, total: parseInt(countRes.rows[0].count, 10) };
 }
+
+export async function markNotificationRead(
+  id: string,
+  userId: string,
+  client?: PoolClient
+): Promise<NotificationRow | null> {
+  const res = await db(client).query<NotificationRow>(
+    `UPDATE notifications SET read = true WHERE id = $1 AND user_id = $2 RETURNING *`,
+    [id, userId]
+  );
+  return res.rows[0] ?? null;
+}
+
+export async function markAllNotificationsRead(userId: string, client?: PoolClient): Promise<void> {
+  await db(client).query(`UPDATE notifications SET read = true WHERE user_id = $1`, [userId]);
+}

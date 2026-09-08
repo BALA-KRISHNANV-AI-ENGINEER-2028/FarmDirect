@@ -9,8 +9,11 @@ export const notificationRouter = Router();
 notificationRouter.use(requireAuth);
 
 notificationRouter.get("/", notificationController.getNotifications);
+notificationRouter.get("/preferences", notificationController.getPreferences);
 notificationRouter.put(
   "/preferences",
   validateBody(updatePreferencesSchema),
   notificationController.updatePreferences
 );
+notificationRouter.put("/read-all", notificationController.markAllRead);
+notificationRouter.put("/:id/read", notificationController.markRead);
