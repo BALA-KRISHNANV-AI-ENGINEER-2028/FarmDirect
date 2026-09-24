@@ -25,12 +25,14 @@ export default function FarmerDashboard() {
       fetchInventory().catch(() => []),
       fetchFarmerOrders().catch(() => []),
       fetchFarmerAnalytics().catch(() => null),
-      fetchFarmerAIInsights().catch(() => []),
+      fetchFarmerAIInsights()
+        .then((r) => ("insights" in r ? r.insights : (Array.isArray(r) ? r : [])))
+        .catch(() => []),
     ]).then(([inv, ord, ana, ins]) => {
       setInventory(inv);
       setOrders(ord);
       setAnalytics(ana);
-      setInsights(ins);
+      setInsights(Array.isArray(ins) ? ins : []);
       setLoading(false);
     });
   }, []);

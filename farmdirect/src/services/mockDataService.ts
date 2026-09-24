@@ -879,20 +879,46 @@ export function handleMockRequest(
 
   // --- Farmer Analytics endpoint ---
   if (pathname === "/farmer/analytics" && method === "GET") {
-    const totalRevenue = mockOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+    const periodParam = query.get("period") || "30d";
+    let days = 30;
+    let label = "Last 30 days";
+    let periodKey: "7d" | "30d" | "90d" | "year" = "30d";
+
+    if (periodParam === "7d") {
+      days = 7;
+      label = "Last 7 days";
+      periodKey = "7d";
+    } else if (periodParam === "90d") {
+      days = 90;
+      label = "Last 90 days";
+      periodKey = "90d";
+    } else if (periodParam === "year") {
+      days = 365;
+      label = "This year";
+      periodKey = "year";
+    }
+
+    const totalOrdersCount = mockOrders.length;
+    const completedOrders = mockOrders.filter((o) => o.status === "DELIVERED" || o.status === "CONFIRMED").length;
+    const processingOrders = mockOrders.filter((o) => o.farmerOrderStatus === "Preparing" || o.farmerOrderStatus === "Ready for Pickup").length;
+    const pendingOrders = mockOrders.filter((o) => o.farmerOrderStatus === "New").length;
+    const cancelledOrders = mockOrders.filter((o) => o.status === "CANCELLED").length;
+    const totalRevenue = mockOrders.reduce((sum, o) => sum + (o.status !== "CANCELLED" ? o.total || 0 : 0), 0);
     const totalUnits = mockOrders.reduce(
-      (sum, o) => sum + o.items.reduce((s, it) => s + (it.quantity || 1), 0),
+      (sum, o) => sum + (o.status !== "CANCELLED" ? o.items.reduce((s, it) => s + (it.quantity || 1), 0) : 0),
       0
     );
 
     // Group best sellers
-    const productStats: Record<string, { id: string; name: string; unitsSold: number; revenue: number }> = {};
+    const productStats: Record<string, { id: string; name: string; category?: string; unitsSold: number; revenue: number }> = {};
     for (const ord of mockOrders) {
+      if (ord.status === "CANCELLED") continue;
       for (const it of ord.items) {
         if (!productStats[it.name]) {
           productStats[it.name] = {
             id: it.productId,
             name: it.name,
+            category: "Vegetables",
             unitsSold: 0,
             revenue: 0,
           };
@@ -902,108 +928,222 @@ export function handleMockRequest(
       }
     }
 
-    const bestSellers = Object.values(productStats)
-      .sort((a, b) => b.unitsSold - a.unitsSold)
-      .slice(0, 5);
+    const topProducts = Object.values(productStats).length > 0
+      ? Object.values(productStats).sort((a, b) => b.revenue - a.revenue).slice(0, 5)
+      : [
+          { id: "p1", name: "Heirloom Tomatoes", category: "Vegetables", unitsSold: 45, revenue: 1710 },
+          { id: "p2", name: "Baby Spinach", category: "Vegetables", unitsSold: 38, revenue: 1140 },
+          { id: "p3", name: "Organic Carrots", category: "Vegetables", unitsSold: 32, revenue: 960 },
+          { id: "p4", name: "Alphonso Mangoes", category: "Fruits", unitsSold: 24, revenue: 1200 },
+        ];
 
-    // Generate daily revenue trend for the last 14 days
+    // Generate daily revenue & orders trend points
+    const pointsCount = Math.min(days, 14);
     const revenueTrend = [];
+    const ordersTrend = [];
     const now = Date.now();
-    for (let i = 13; i >= 0; i--) {
+    for (let i = pointsCount - 1; i >= 0; i--) {
       const d = new Date(now - i * 86400000);
       const dateStr = d.toISOString().slice(0, 10);
-      const dayRevenue = Math.round(150 + Math.sin(i) * 60 + (13 - i) * 15);
-      const dayOrders = Math.max(1, Math.round(dayRevenue / 45));
-      revenueTrend.push({
-        date: dateStr,
-        revenue: dayRevenue,
-        orders: dayOrders,
-      });
+      const dayRev = Math.round(180 + Math.sin(i * 0.8) * 80 + (pointsCount - i) * 20);
+      const dayOrd = Math.max(1, Math.round(dayRev / 55));
+      revenueTrend.push({ date: dateStr, revenue: dayRev, orders: dayOrd });
+      ordersTrend.push({ date: dateStr, orders: dayOrd });
     }
 
-    return jsonResponse({
-      data: {
-        revenue30d: totalRevenue > 0 ? totalRevenue : 4820,
-        revenueTrendPercent: 12.5,
-        orders30d: mockOrders.length > 0 ? mockOrders.length : 38,
-        ordersTrendPercent: 8.2,
-        productsSold: totalUnits > 0 ? totalUnits : 164,
-        productsSoldTrendPercent: 15.0,
-        newCustomers: 24,
-        newCustomersTrendPercent: 18.0,
-        revenueTrend,
-        bestSellers:
-          bestSellers.length > 0
-            ? bestSellers
-            : [
-                { id: "p1", name: "Heirloom Tomatoes", unitsSold: 45, revenue: 1710 },
-                { id: "p2", name: "Baby Spinach", unitsSold: 38, revenue: 1140 },
-                { id: "p3", name: "Organic Carrots", unitsSold: 32, revenue: 960 },
-              ],
-        performance: {
-          repeatPurchaseRate: 38.4,
-          averageOrderValue: Math.round(totalRevenue / Math.max(1, mockOrders.length)) || 52,
-          customerGrowthRate: 14.2,
-          averageRating: 4.85,
-        },
+    // Inventory calculations
+    const lowStockList = mockInventory.filter((i) => i.stock > 0 && i.stock <= 10);
+    const outOfStockList = mockInventory.filter((i) => i.stock === 0);
+    const healthyStockCount = mockInventory.filter((i) => i.stock > 10).length;
+    const totalStockUnits = mockInventory.reduce((s, i) => s + i.stock, 0);
+
+    const itemsRequiringAttention = [...outOfStockList, ...lowStockList].map((i) => ({
+      id: i.productId,
+      name: i.name,
+      stock: i.stock,
+      unit: i.unit,
+      threshold: 10,
+      status: i.stock === 0 ? "Out of Stock" : "Low Stock",
+      farmName: "Sunrise Organic Farm",
+    }));
+
+    // Status distribution
+    const nonCancelled = Math.max(1, totalOrdersCount - cancelledOrders);
+    const orderStatusDistribution = [
+      { status: "DELIVERED", label: "Completed", count: completedOrders || 28, percentage: 65 },
+      { status: "PROCESSING", label: "Processing", count: processingOrders || 8, percentage: 18 },
+      { status: "PENDING", label: "Pending", count: pendingOrders || 4, percentage: 10 },
+      { status: "CANCELLED", label: "Cancelled", count: cancelledOrders || 3, percentage: 7 },
+    ];
+
+    // Categories
+    const categoryPerformance = [
+      { category: "Vegetables", revenue: 4250, unitsSold: 110, productsCount: 5 },
+      { category: "Fruits", revenue: 2180, unitsSold: 45, productsCount: 3 },
+      { category: "Grains", revenue: 1450, unitsSold: 28, productsCount: 2 },
+    ];
+
+    // Recent orders
+    const recentOrders = mockOrders.slice(0, 5).map((o) => ({
+      id: o.id,
+      orderNumber: o.orderNumber,
+      date: o.date,
+      customerName: "Priya Sharma",
+      amount: o.total,
+      status: o.status,
+      itemsCount: o.items.length,
+    }));
+
+    const aov = nonCancelled > 0 ? Math.round(totalRevenue / nonCancelled) : 68;
+
+    const responsePayload = {
+      period: {
+        from: new Date(now - days * 86400000).toISOString(),
+        to: new Date(now).toISOString(),
+        label,
+        periodKey,
       },
-    });
+      summary: {
+        totalRevenue: totalRevenue > 0 ? totalRevenue : 7880,
+        totalOrders: totalOrdersCount > 0 ? totalOrdersCount : 43,
+        completedOrders: completedOrders || 32,
+        pendingOrders: pendingOrders || 4,
+        processingOrders: processingOrders || 5,
+        cancelledOrders: cancelledOrders || 2,
+        averageOrderValue: aov || 68,
+        totalProducts: mockInventory.length || 8,
+        activeProducts: mockInventory.filter((i) => i.stock > 0).length || 7,
+        lowStockProducts: lowStockList.length + outOfStockList.length,
+        totalCustomers: 26,
+        revenueGrowth: 14.5,
+        ordersGrowth: 9.2,
+      },
+      revenueTrend,
+      ordersTrend,
+      topProducts,
+      orderStatusDistribution,
+      inventorySummary: {
+        healthyStock: healthyStockCount,
+        lowStock: lowStockList.length,
+        outOfStock: outOfStockList.length,
+        totalStockUnits,
+        itemsRequiringAttention,
+      },
+      customerSummary: {
+        total: 26,
+        new: 7,
+        repeat: 19,
+        repeatRate: 42.5,
+      },
+      categoryPerformance,
+      recentOrders,
+
+      // Legacy backwards-compatibility
+      revenue30d: totalRevenue > 0 ? totalRevenue : 7880,
+      revenueTrendPercent: 14.5,
+      orders30d: totalOrdersCount > 0 ? totalOrdersCount : 43,
+      ordersTrendPercent: 9.2,
+      productsSold: totalUnits > 0 ? totalUnits : 183,
+      productsSoldTrendPercent: 11.4,
+      newCustomers: 7,
+      newCustomersTrendPercent: 12.0,
+      bestSellers: topProducts,
+      performance: {
+        repeatPurchaseRate: 42.5,
+        averageOrderValue: aov || 68,
+        customerGrowthRate: 14.5,
+        averageRating: 4.85,
+      },
+    };
+
+    return jsonResponse({ data: responsePayload });
   }
 
   // --- Farmer AI Insights endpoint ---
   if ((pathname === "/farmer/ai-insights" || pathname === "/farmer/ai-insights/refresh") && (method === "GET" || method === "POST")) {
+    const periodParam = query.get("period") || "30d";
+    const periodLabel = periodParam === "7d" ? "Last 7 days" : periodParam === "90d" ? "Last 90 days" : periodParam === "year" ? "This year" : "Last 30 days";
+
     const lowStockItems = mockInventory.filter((i) => i.stock < 10);
-    const topItem = mockInventory.sort((a, b) => b.stock - a.stock)[0];
 
-    const dynamicInsights = [];
-
-    if (lowStockItems.length > 0) {
-      dynamicInsights.push({
+    const dynamicInsights = [
+      {
         id: "insight-inv-" + Date.now(),
-        type: "inventory" as const,
-        title: `Low stock alert: ${lowStockItems.map((i) => i.name).join(", ")}`,
-        message: `${lowStockItems[0].name} has only ${lowStockItems[0].stock} ${lowStockItems[0].unit} left. Anticipating high weekend demand, restock to avoid lost sales.`,
-        icon: "Package",
-        impact: `High risk of stockout within 48h`,
+        type: "inventory",
+        title: "Inventory Restock Alert",
+        explanation: `${lowStockItems.length > 0 ? lowStockItems.map((i) => i.name).join(", ") : "Organic Spinach"} is currently below minimum safety inventory thresholds. Rapid restock ensures uninterrupted customer order fulfillment.`,
+        evidence: [
+          `Stock count: ${lowStockItems[0]?.stock ?? 4} ${lowStockItems[0]?.unit ?? "kg"} remaining`,
+          `Configured threshold: 10 ${lowStockItems[0]?.unit ?? "kg"}`,
+          `High weekend ordering velocity historically detected`,
+        ],
+        recommendation: "Log batch harvest updates or adjust listing availability in the inventory ledger.",
+        confidence: "high",
+        icon: "inventory_2",
+        impact: "High Priority",
         action: { label: "Manage Inventory", link: "/farmer/inventory" },
         generatedAt: new Date().toISOString(),
-      });
-    }
-
-    dynamicInsights.push(
+      },
+      {
+        id: "insight-growth-" + Date.now(),
+        type: "growth",
+        title: "Revenue Expansion Observed",
+        explanation: `Gross sales grew +14.5% during ${periodLabel}, driven by repeat household vegetable bundles and premium organic tomato varieties.`,
+        evidence: [
+          `Gross revenue: ₹7,880 for ${periodLabel}`,
+          `Growth vs prior window: +14.5%`,
+          `Average Order Value: ₹68 per order`,
+        ],
+        recommendation: "Maintain high-demand product visibility on the public marketplace storefront.",
+        confidence: "high",
+        icon: "trending_up",
+        impact: "+14.5% Growth",
+        action: { label: "View Analytics", link: "/farmer/analytics" },
+        generatedAt: new Date().toISOString(),
+      },
       {
         id: "insight-demand-" + Date.now(),
-        type: "demand" as const,
-        title: "Weekend Demand Surge Expected",
-        message: `Salad greens and tomatoes are projected to see a 25% surge in local orders this weekend. Ensure packing materials and morning harvests are prepped.`,
-        icon: "TrendingUp",
-        impact: "+₹2,400 potential incremental revenue",
+        type: "demand",
+        title: "Strong Weekend Demand Pattern",
+        explanation: `Buyer transactions historically peak Thursday evening through Saturday morning. Pre-packaging harvested bunches ahead of delivery cut-offs reduces transit delay.`,
+        evidence: [
+          `43 completed direct farm orders logged`,
+          `68% placed in late-week ordering windows`,
+        ],
+        recommendation: "Review packing materials and early harvest schedules before weekend order rushes.",
+        confidence: "high",
+        icon: "insights",
+        impact: "Operational",
         action: { label: "Review Orders", link: "/farmer/orders" },
         generatedAt: new Date().toISOString(),
       },
       {
-        id: "insight-price-" + Date.now(),
-        type: "price" as const,
-        title: "Pricing Opportunity: Organic Strawberries",
-        message: `Local market supply for berries has dipped by 15%. You have headroom to optimize prices by ₹5–₹10/kg without denting conversion rates.`,
-        icon: "DollarSign",
-        impact: "Est. margin improvement +8%",
-        action: { label: "Adjust Product Prices", link: "/farmer/products" },
+        id: "insight-cust-" + Date.now(),
+        type: "customers",
+        title: "Customer Retention Traction",
+        explanation: `42.5% of your customer base placed multiple orders across the past month, demonstrating strong local consumer satisfaction.`,
+        evidence: [
+          `Unique buyers: 26 households`,
+          `Repeat order rate: 42.5%`,
+          `Customer rating: 4.85 / 5.0 across verified reviews`,
+        ],
+        recommendation: "Add seasonal harvest notices to keep recurring buyers engaged with upcoming produce cycles.",
+        confidence: "medium",
+        icon: "group",
+        impact: "Retention",
+        action: { label: "Product Catalogue", link: "/farmer/products" },
         generatedAt: new Date().toISOString(),
       },
-      {
-        id: "insight-sales-" + Date.now(),
-        type: "sales" as const,
-        title: "Bundle Recommendation: Fresh Salad Basket",
-        message: `Customers frequently buy ${topItem?.name || "produce"} alongside fresh herbs. Creating a bundled farm pack could raise your Average Order Value by 18%.`,
-        icon: "Sparkles",
-        impact: "+18% basket size growth",
-        action: { label: "Add Bundle", link: "/farmer/products" },
-        generatedAt: new Date().toISOString(),
-      }
-    );
+    ];
 
-    return jsonResponse({ data: dynamicInsights });
+    return jsonResponse({
+      data: {
+        summary: `Verified marketplace analysis for ${periodLabel}. Real sales and inventory metrics reflect active farm operations.`,
+        insights: dynamicInsights,
+        generatedAt: new Date().toISOString(),
+        periodLabel,
+      },
+    });
   }
 
   // --- Notifications endpoints ---
