@@ -240,6 +240,87 @@ function farmerToProfile(fm: Farmer) {
   };
 }
 
+interface MockCartItem {
+  productId: string;
+  name: string;
+  image: string | null;
+  price: number;
+  unit: string;
+  quantity: number;
+  farmId: string;
+  farmName: string;
+  availability: string;
+  stock: number;
+}
+
+const STORAGE_CART_KEY = "farmdirect_cart_items";
+
+function getMockCart(): MockCartItem[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_CART_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMockCart(items: MockCartItem[]) {
+  try {
+    localStorage.setItem(STORAGE_CART_KEY, JSON.stringify(items));
+  } catch {
+    // Ignore storage write issues
+  }
+}
+
+function makeCartResponse(items: MockCartItem[]) {
+  const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
+  return jsonResponse({
+    items,
+    subtotal,
+    totalItems,
+  });
+}
+
+function orderToApi(o: Order) {
+  const parts = typeof o.deliveryAddress === "string" ? o.deliveryAddress.split(", ") : [];
+  return {
+    id: o.id,
+    orderNumber: o.orderNumber || o.id,
+    status: o.status,
+    subtotal: o.total,
+    deliveryFee: 0,
+    total: o.total,
+    deliveryMethod: "standard",
+    paymentMethod: "card",
+    deliveryAddress: typeof o.deliveryAddress === "string" ? {
+      fullName: "Priya Sharma",
+      phone: "+91 98765 43210",
+      addressLine: o.deliveryAddress,
+      city: parts[parts.length - 1] || "Pune",
+      state: "Maharashtra",
+      postalCode: "411045",
+    } : o.deliveryAddress,
+    estimatedDeliveryAt: o.estimatedDelivery || "Tomorrow, 10:00 AM – 1:00 PM",
+    placedAt: o.date || new Date().toISOString(),
+    items: o.items.map((it) => ({
+      productId: it.productId,
+      name: it.name,
+      image: it.image || null,
+      unit: it.unit || "kg",
+      price: it.price || 0,
+      quantity: it.quantity || 1,
+      farmId: it.farmId || "farm1",
+      farmName: it.farmName || "Ravi's Organic Farm",
+    })),
+    kanbanStatus: o.farmerOrderStatus || (o.status === "OUT_FOR_DELIVERY" ? "Out for Delivery" : o.status === "DELIVERED" ? "Completed" : "New"),
+    statusHistory: [
+      { status: "PLACED", note: "Order placed by customer", at: o.date || new Date().toISOString() },
+      { status: o.status, note: `Status updated to ${o.status}`, at: new Date().toISOString() },
+    ],
+  };
+}
+
 export function handleMockRequest(
   pathWithQuery: string,
   method = "GET",
@@ -247,7 +328,18 @@ export function handleMockRequest(
 ): Response | null {
   const [pathname, queryString] = pathWithQuery.split("?");
   const query = new URLSearchParams(queryString || "");
-  const payload = (typeof body === "string" ? JSON.parse(body) : body) as Record<string, unknown> | undefined;
+  let payload: Record<string, unknown> | undefined = undefined;
+  if (body) {
+    if (typeof body === "string") {
+      try {
+        payload = JSON.parse(body);
+      } catch {
+        payload = undefined;
+      }
+    } else if (typeof body === "object") {
+      payload = body as Record<string, unknown>;
+    }
+  }
 
   // --- Auth endpoints ---
   if (pathname === "/auth/refresh") {
@@ -495,8 +587,32 @@ export function handleMockRequest(
   const farmDetailMatch = pathname.match(/^\/farms\/([^/]+)$/);
   if (farmDetailMatch) {
     const id = farmDetailMatch[1];
-    const f = mockFarms.find((item) => item.id === id) ?? mockFarms[0];
-    return jsonResponse({ farm: farmToDetail(f) });
+    if (method === "GET") {
+      const f = mockFarms.find((item) => item.id === id) ?? mockFarms[0];
+      return jsonResponse({ farm: farmToDetail(f) });
+    }
+    if (method === "PUT") {
+      const idx = mockFarms.findIndex((item) => item.id === id);
+      if (idx !== -1 && payload) {
+        mockFarms[idx] = { ...mockFarms[idx], ...payload } as Farm;
+        return jsonResponse({ farm: farmToDetail(mockFarms[idx]) });
+      }
+    }
+    if (method === "DELETE") {
+      const idx = mockFarms.findIndex((item) => item.id === id);
+      if (idx !== -1) mockFarms.splice(idx, 1);
+      return new Response(null, { status: 204 });
+    }
+  }
+
+  const farmReviewMatch = pathname.match(/^\/farms\/([^/]+)\/reviews$/);
+  if (farmReviewMatch && method === "POST") {
+    return jsonResponse({ success: true });
+  }
+
+  const farmerReviewMatch = pathname.match(/^\/farmers\/([^/]+)\/reviews$/);
+  if (farmerReviewMatch && method === "POST") {
+    return jsonResponse({ success: true });
   }
 
   if (pathname === "/farms" && method === "POST") {
@@ -532,20 +648,80 @@ export function handleMockRequest(
     return jsonResponse({ farmer: farmerToProfile(fm) });
   }
 
+  // --- Cart endpoints ---
+  if (pathname === "/cart" && method === "GET") {
+    return makeCartResponse(getMockCart());
+  }
+
+  if (pathname === "/cart/items" && method === "POST") {
+    const items = getMockCart();
+    const prodId = String(payload?.productId || "");
+    const qty = Number(payload?.quantity || 1);
+    const existing = items.find((i) => i.productId === prodId);
+    if (existing) {
+      existing.quantity += qty;
+    } else {
+      const prod = mockProducts.find((p) => p.id === prodId);
+      if (prod) {
+        items.push({
+          productId: prod.id,
+          name: prod.name,
+          image: prod.images[0] || null,
+          price: prod.price,
+          unit: prod.unit,
+          quantity: qty,
+          farmId: prod.farmId,
+          farmName: prod.farmName,
+          availability: prod.availability,
+          stock: prod.stock,
+        });
+      }
+    }
+    saveMockCart(items);
+    return makeCartResponse(items);
+  }
+
+  const cartItemMatch = pathname.match(/^\/cart\/items\/([^/]+)$/);
+  if (cartItemMatch) {
+    const prodId = cartItemMatch[1];
+    let items = getMockCart();
+    if (method === "PUT") {
+      const qty = Number(payload?.quantity || 1);
+      if (qty <= 0) {
+        items = items.filter((i) => i.productId !== prodId);
+      } else {
+        const item = items.find((i) => i.productId === prodId);
+        if (item) item.quantity = qty;
+      }
+      saveMockCart(items);
+      return makeCartResponse(items);
+    }
+    if (method === "DELETE") {
+      items = items.filter((i) => i.productId !== prodId);
+      saveMockCart(items);
+      return makeCartResponse(items);
+    }
+  }
+
+  if (pathname === "/cart" && method === "DELETE") {
+    saveMockCart([]);
+    return new Response(null, { status: 204 });
+  }
+
   // --- Orders endpoints ---
   if (pathname === "/orders" && method === "GET") {
-    return jsonResponse({ data: mockOrders });
+    return jsonResponse({ data: mockOrders.map(orderToApi) });
   }
 
   if (pathname === "/farmer/orders" && method === "GET") {
-    return jsonResponse({ data: mockOrders });
+    return jsonResponse({ data: mockOrders.map(orderToApi) });
   }
 
   const singleOrderMatch = pathname.match(/^\/orders\/([^/]+)$/);
   if (singleOrderMatch && method === "GET") {
     const id = singleOrderMatch[1];
     const o = mockOrders.find((item) => item.id === id || item.orderNumber === id) ?? mockOrders[0];
-    return jsonResponse({ order: o });
+    return jsonResponse({ order: orderToApi(o) });
   }
 
   const orderStatusMatch = pathname.match(/^\/orders\/([^/]+)\/status$/);
@@ -577,34 +753,64 @@ export function handleMockRequest(
         }
       }
     }
-    return jsonResponse({ order: o ?? mockOrders[0] });
+    return jsonResponse({ order: orderToApi(o ?? mockOrders[0]) });
   }
 
   if (pathname === "/orders" && method === "POST") {
+    const cartItems = getMockCart();
+    const orderItems = cartItems.length > 0
+      ? cartItems.map((c) => ({
+          productId: c.productId,
+          name: c.name,
+          image: c.image || "https://images.unsplash.com/photo-1592841200221-a6898f307baa?w=200&q=80",
+          quantity: c.quantity,
+          unit: c.unit,
+          price: c.price,
+          farmId: c.farmId,
+          farmName: c.farmName,
+        }))
+      : [
+          {
+            productId: "p1",
+            name: "Heirloom Tomatoes",
+            image: "https://images.unsplash.com/photo-1592841200221-a6898f307baa?w=200&q=80",
+            quantity: 2,
+            unit: "kg",
+            price: 38,
+            farmId: "farm1",
+            farmName: "Ravi's Organic Farm",
+          },
+        ];
+
+    let deliveryAddressStr = "204, Lotus Residency, Baner Road, Pune";
+    if (payload?.addressId) {
+      const match = mockAddresses.find((a) => a.id === payload.addressId);
+      if (match) {
+        deliveryAddressStr = [match.addressLine, match.city, match.state, match.postalCode].filter(Boolean).join(", ");
+      }
+    } else if (payload?.address && typeof payload.address === "object") {
+      const a = payload.address as Record<string, string>;
+      deliveryAddressStr = [a.addressLine, a.city, a.state, a.postalCode].filter(Boolean).join(", ");
+    }
+
+    const itemsSubtotal = orderItems.reduce((acc, it) => acc + it.price * it.quantity, 0);
+    const deliveryFee = payload?.deliveryMethod === "express" ? 60 : 25;
+    const finalTotal = itemsSubtotal + deliveryFee;
+
     const newOrder: Order = {
       id: "FD-" + Math.floor(1000 + Math.random() * 9000),
       orderNumber: "FD-" + Math.floor(1000 + Math.random() * 9000),
       date: new Date().toISOString().slice(0, 10),
       status: "CONFIRMED",
       farmerOrderStatus: "New",
-      items: [
-        {
-          productId: "p1",
-          name: "Heirloom Tomatoes",
-          image: "https://images.unsplash.com/photo-1592841200221-a6898f307baa?w=200&q=80",
-          quantity: 2,
-          unit: "kg",
-          price: 38,
-          farmId: "farm1",
-          farmName: "Ravi's Organic Farm",
-        },
-      ],
-      total: 76,
-      deliveryAddress: "204, Lotus Residency, Baner Road, Pune",
-      estimatedDelivery: "Tomorrow, 10:00 AM – 1:00 PM",
+      items: orderItems,
+      total: finalTotal,
+      deliveryAddress: deliveryAddressStr,
+      estimatedDelivery: payload?.deliveryMethod === "express" ? "Today, within 4 hours" : "Tomorrow, 10:00 AM – 1:00 PM",
     };
     mockOrders.unshift(newOrder);
-    return jsonResponse({ order: newOrder });
+    saveMockCart([]); // Clear mock cart on successful order
+    return jsonResponse({ order: orderToApi(newOrder) });
   }
 
   // --- Inventory endpoints ---
@@ -894,6 +1100,23 @@ export function handleMockRequest(
     };
     mockAddresses.push(newAddr);
     return jsonResponse({ address: newAddr });
+  }
+
+  const addressItemMatch = pathname.match(/^\/addresses\/([^/]+)$/);
+  if (addressItemMatch) {
+    const id = addressItemMatch[1];
+    if (method === "PUT" && payload) {
+      const idx = mockAddresses.findIndex((a) => a.id === id);
+      if (idx !== -1) {
+        mockAddresses[idx] = { ...mockAddresses[idx], ...payload };
+        return jsonResponse({ address: mockAddresses[idx] });
+      }
+    }
+    if (method === "DELETE") {
+      const idx = mockAddresses.findIndex((a) => a.id === id);
+      if (idx !== -1) mockAddresses.splice(idx, 1);
+      return new Response(null, { status: 204 });
+    }
   }
 
   // --- Notification Preferences ---

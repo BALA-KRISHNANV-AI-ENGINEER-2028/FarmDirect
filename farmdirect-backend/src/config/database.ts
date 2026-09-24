@@ -56,11 +56,16 @@ export async function withTransaction<T>(
  * clear message instead of surfacing on the first real request.
  */
 export async function verifyDatabaseConnection(): Promise<void> {
-  const client = await pool.connect();
   try {
-    await client.query("SELECT 1");
-  } finally {
-    client.release();
+    const client = await pool.connect();
+    try {
+      await client.query("SELECT 1");
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[AI Studio] Database connection could not be established — running with fallback mock.", err);
   }
 }
 

@@ -41,29 +41,31 @@ function toOrderItem(dto: ApiOrderItem): OrderItem {
     productId: dto.productId,
     name: dto.name,
     image: dto.image ?? "",
-    quantity: dto.quantity,
-    unit: dto.unit,
-    price: dto.price,
-    farmId: dto.farmId,
-    farmName: dto.farmName,
+    quantity: dto.quantity || 1,
+    unit: dto.unit || "kg",
+    price: dto.price || 0,
+    farmId: dto.farmId || "",
+    farmName: dto.farmName || "",
   };
 }
 
-function toOrder(dto: ApiOrder): Order {
+function toOrder(dto: ApiOrder | any): Order {
   const addr = dto.deliveryAddress;
-  const deliveryAddress = addr
+  const deliveryAddress = typeof addr === "string"
+    ? addr
+    : addr
     ? [addr.addressLine, addr.city, addr.state, addr.postalCode].filter(Boolean).join(", ")
     : "";
   return {
     id: dto.id,
-    orderNumber: dto.orderNumber,
-    date: dto.placedAt,
-    status: dto.status as OrderStatus,
-    items: dto.items.map(toOrderItem),
-    total: dto.total,
+    orderNumber: dto.orderNumber || dto.id,
+    date: dto.placedAt || dto.date || new Date().toISOString().slice(0, 10),
+    status: (dto.status || "CONFIRMED") as OrderStatus,
+    items: Array.isArray(dto.items) ? dto.items.map(toOrderItem) : [],
+    total: dto.total ?? 0,
     deliveryAddress,
-    estimatedDelivery: dto.estimatedDeliveryAt ?? "",
-    farmerOrderStatus: dto.kanbanStatus as Order["farmerOrderStatus"],
+    estimatedDelivery: dto.estimatedDeliveryAt ?? dto.estimatedDelivery ?? "",
+    farmerOrderStatus: (dto.kanbanStatus ?? dto.farmerOrderStatus ?? "New") as Order["farmerOrderStatus"],
   };
 }
 

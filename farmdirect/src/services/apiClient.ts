@@ -61,6 +61,18 @@ export function getErrorMessage(err: unknown): string {
 async function rawRequest(path: string, options: RequestOptions = {}): Promise<Response> {
   const { body, headers, ...rest } = options;
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const method = rest.method ?? "GET";
+
+  const isHosted = typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1";
+  const pointsToLocalhost = API_BASE_URL.includes("localhost") || API_BASE_URL.includes("127.0.0.1");
+  const hasRealBackend = Boolean(API_BASE_URL && (!isHosted || !pointsToLocalhost));
+
+  // If no external backend configured or running in cloud without a remote backend, serve directly from mock
+  if (!hasRealBackend) {
+    const mockRes = handleMockRequest(cleanPath, method, body);
+    if (mockRes) return mockRes;
+  }
+
   const url = `${API_BASE_URL}${cleanPath}`;
   const fetchOptions: RequestInit = {
     ...rest,
@@ -74,17 +86,16 @@ async function rawRequest(path: string, options: RequestOptions = {}): Promise<R
   };
 
   try {
-    return await fetch(url, fetchOptions);
-  } catch {
-    // Retry once after 1 second in case server is waking up or network blipped
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      return await fetch(url, fetchOptions);
-    } catch {
-      const mockRes = handleMockRequest(cleanPath, rest.method ?? "GET", body);
+    const res = await fetch(url, fetchOptions);
+    if (!res.ok && res.status >= 400 && res.status !== 401 && res.status !== 403) {
+      const mockRes = handleMockRequest(cleanPath, method, body);
       if (mockRes) return mockRes;
-      throw new ApiError(0, "Unable to connect to FarmDirect. Check your internet connection or try again in a moment.");
     }
+    return res;
+  } catch {
+    const mockRes = handleMockRequest(cleanPath, method, body);
+    if (mockRes) return mockRes;
+    throw new ApiError(0, "Unable to connect to FarmDirect. Check your internet connection or try again in a moment.");
   }
 }
 

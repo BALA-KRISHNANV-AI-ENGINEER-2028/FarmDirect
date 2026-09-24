@@ -12,7 +12,7 @@ const inlineAddressSchema = z.object({
 
 export const createOrderSchema = z
   .object({
-    addressId: z.string().uuid().optional(),
+    addressId: z.string().min(1).optional(),
     address: inlineAddressSchema.optional(),
     deliveryMethod: z.enum(["standard", "express"]),
     paymentMethod: z.enum(["upi", "card", "cod"]),
